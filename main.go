@@ -53,21 +53,15 @@ func main() {
 
 func msyncMain() error {
 	started := time.Now()
-	sourceTree, err := MakeMusicTreeNode(*fromFlag, []string{})
+	sourceTree, err := MakeMusicTree(*fromFlag)
 	if err != nil {
 		return err
 	}
 	elapsed := time.Now().Sub(started).Round(time.Second)
 	fmt.Printf("built tree for source in %s; size is %d bytes\n", elapsed.String(), sourceTree.CalculateSizeRecursive())
 
-	nyNode := sourceTree.NodeAtTreePath([]string{"1989 (deluxe edition)", "01 welcome to new york"})
-	fmt.Println(nyNode)
-
-	nodeAgain := sourceTree.NodeAtTreePath(nyNode.TreePath)
-	fmt.Println(nodeAgain)
-
 	started = time.Now()
-	destTree, err := MakeMusicTreeNode(*toFlag, []string{})
+	destTree, err := MakeMusicTree(*toFlag)
 	if err != nil {
 		return err
 	}
