@@ -24,12 +24,12 @@ func usage() {
 }
 
 var (
-	fromFlag       = flag.String("from", "", "Source directory with music library. (Required)")
-	toFlag         = flag.String("to", "", "Destination directory for mirrored/reencoded music library. (Required)")
+	fromFlag           = flag.String("from", "", "Source directory with music library. (Required)")
+	toFlag             = flag.String("to", "", "Destination directory for mirrored/reencoded music library. (Required)")
 	maxBitrateKbpsFlag = flag.Int("max-kbps", 192, "Maximum bitrate, in Kbps, for destination music library.")
-	dryRunFlag     = flag.Bool("dry-run", false, "If true, do not modify anything on the filesystem.")
-	verboseFlag    = flag.Bool("verbose", false, "Log detailed output to stderr.")
-	printVersion   = flag.Bool("version", false, "Print version and exit.")
+	dryRunFlag         = flag.Bool("dry-run", false, "If true, do not modify anything on the filesystem.")
+	verboseFlag        = flag.Bool("verbose", false, "Log detailed output to stderr.")
+	printVersion       = flag.Bool("version", false, "Print version and exit.")
 )
 
 func main() {
@@ -53,28 +53,31 @@ func main() {
 
 func msyncMain() error {
 	started := time.Now()
-	sourceTree, err := MakeMusicTreeNode(*fromFlag)
+	sourceTree, err := MakeMusicTreeNode(*fromFlag, []string{})
 	if err != nil {
 		return err
 	}
 	elapsed := time.Now().Sub(started).Round(time.Second)
 	fmt.Printf("built tree for source in %s; size is %d bytes\n", elapsed.String(), sourceTree.CalculateSizeRecursive())
 
+	nyNode := sourceTree.NodeAtTreePath([]string{"1989 (deluxe edition)", "01 welcome to new york"})
+	fmt.Println(nyNode)
+
+	nodeAgain := sourceTree.NodeAtTreePath(nyNode.TreePath)
+	fmt.Println(nodeAgain)
+
 	started = time.Now()
-	destTree, err := MakeMusicTreeNode(*toFlag)
+	destTree, err := MakeMusicTreeNode(*toFlag, []string{})
 	if err != nil {
 		return err
 	}
 	elapsed = time.Now().Sub(started).Round(time.Second)
 	fmt.Printf("built tree for dest in %s; size is %d bytes\n", elapsed.String(), destTree.CalculateSizeRecursive())
 
-	// TODO(cdzombak): plan: remove anything from dest that has too-large bitrate
-	// TODO(cdzombak): plan: remove anything from dest that isn't in source
-	// TODO(cdzombak): plan: either link or reencode everything from source that isn't in dest
+	// TODO(cdzombak): remove anything from dest that has too-large bitrate
+	// TODO(cdzombak): remove anything from dest that isn't in source
 
-	// TODO(cdzombak): print full plan iff -verbose
-
-	// TODO(cdzombak): execute plan
+	// TODO(cdzombak): either link or reencode everything from source that isn't in dest
 
 	// TODO(cdzombak): print total dest library size
 
