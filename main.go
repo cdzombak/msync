@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -10,7 +11,7 @@ import (
 	"strings"
 )
 
-var version = "undefined"
+var version = "undefined (dev?)"
 
 // TODO(cdzombak): add a progress bar https://github.com/schollz/progressbar
 
@@ -34,6 +35,7 @@ var (
 	makeSymlinksFlag             = flag.Bool("symlink", false, "If true, make symlinks from the destination to the source for music files below the maximum bitrate. (If not set, make a proper copy of the file.)")
 	verboseFlag                  = flag.Bool("verbose", false, "Log detailed output to stderr. Suppresses progress bars.")
 	printVersion                 = flag.Bool("version", false, "Print version and exit.")
+	fileCreateModeFlag           = flag.String("file-mode", "0644", "Octal value specifying mode for copied music files. Must begin with '0' or '0o'.")
 )
 
 func main() {
@@ -56,6 +58,13 @@ func main() {
 }
 
 func msyncMain() error {
+	var fileCreateMode os.FileMode
+	if mode, err := strconv.ParseInt(*fileCreateModeFlag, 8, 64); err != nil {
+		return errors.New("-file-mode must be an octal value parsable by strconv.ParseInt")
+	} else {
+		fileCreateMode = os.FileMode(mode)
+	}
+
 	sourceRootPath, err := filepath.Abs(*fromFlag)
 	if err != nil {
 		return err
@@ -249,7 +258,7 @@ func msyncMain() error {
 						if *verboseFlag {
 							log.Printf("Copying '%s' to '%s'", n.FilesystemPath, destPath)
 						}
-						err := CopyFile(n.FilesystemPath, destPath)
+						err := CopyFile(n.FilesystemPath, destPath, fileCreateMode)
 						if err != nil {
 							return fmt.Errorf("failed to copy '%s' to '%s': %w", n.FilesystemPath, destPath, err)
 						}

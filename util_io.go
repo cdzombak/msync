@@ -5,14 +5,14 @@ import (
 	"os"
 )
 
-func CopyFile(from, to string) error {
+func CopyFile(from, to string, mode os.FileMode) error {
 	fromFile, err := os.Open(from)
 	if err != nil {
 		return err
 	}
 	defer fromFile.Close()
 
-	toFile, err := os.OpenFile(to, os.O_RDWR|os.O_CREATE, 0644) // TODO(cdzombak): allow customizing perm
+	toFile, err := os.OpenFile(to, os.O_RDWR|os.O_CREATE, mode)
 	if err != nil {
 		return err
 	}
