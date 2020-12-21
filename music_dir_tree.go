@@ -31,7 +31,7 @@ func MakeMusicTree(filePath string) (*MusicTreeNode, error) {
 // MakeMusicTreeNode returns nil if the path does not point to a directory, regular file, or symlink.
 func MakeMusicTreeNode(filePath string, parentNodePath []string, isRootNode bool) (*MusicTreeNode, error) {
 	if *verboseFlag {
-		log.Printf("building node for '%s'", filePath)
+		log.Printf("Scanning '%s' ...", filePath)
 	}
 	rootInfo, err := os.Stat(filePath)
 	if err != nil {
@@ -51,7 +51,7 @@ func MakeMusicTreeNode(filePath string, parentNodePath []string, isRootNode bool
 	} else if n.Mode.IsRegular() || n.Mode&os.ModeSymlink != 0 {
 		n.IsFile = true
 	} else {
-		log.Printf("[warning] skipping '%s' as it is not a regular file", filePath)
+		log.Printf("[warning] Skipping '%s': it is not a regular file.", filePath)
 		return nil, nil
 	}
 	if n.IsDirectory {
@@ -67,7 +67,7 @@ func MakeMusicTreeNode(filePath string, parentNodePath []string, isRootNode bool
 			}
 			if childNode != nil {
 				if existingNode, ok := n.Children[childNode.BaseNameNormalized]; ok {
-					log.Printf("[warning] normalized name collision in '%s': '%s' and '%s'", filePath, existingNode.BaseName, childNode.BaseName)
+					log.Printf("[warning] Normalized name collision in '%s': '%s' and '%s'.", filePath, existingNode.BaseName, childNode.BaseName)
 				}
 				n.Children[childNode.BaseNameNormalized] = childNode
 			}

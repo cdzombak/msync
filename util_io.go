@@ -21,3 +21,10 @@ func CopyFile(from, to string) error {
 	_, err = io.Copy(toFile, fromFile)
 	return err
 }
+
+func IsStdoutInteractive() bool {
+	if fileInfo, _ := os.Stdout.Stat(); (fileInfo.Mode() & os.ModeCharDevice) != 0 {
+		return true
+	}
+	return false
+}

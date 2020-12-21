@@ -25,15 +25,17 @@ func (n *MusicTreeNode) RemoveChildrenMatching(removeMatchFunc func(n *MusicTree
 
 				if !*dryRunFlag {
 					if *verboseFlag {
-						log.Printf("removing '%s' because %s", childNode.FilesystemPath, logReason)
+						log.Printf("Removing '%s' because %s.", childNode.FilesystemPath, logReason)
 					}
 					if err := wastebasket.Trash(childNode.FilesystemPath); err != nil {
 						return removeCount, fmt.Errorf("failed to trash '%s': %w", childNode.FilesystemPath, err)
 					}
 					removeCount++
-				} else if *verboseFlag {
-					log.Printf("[dry run] would remove '%s' because %s", childNode.FilesystemPath, logReason)
+				} else {
 					removeCount++
+					if *verboseFlag {
+						log.Printf("[dry run] Would remove '%s' because %s.", childNode.FilesystemPath, logReason)
+					}
 				}
 			}
 		}
