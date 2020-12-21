@@ -231,10 +231,19 @@ func msyncMain() error {
 					if *verboseFlag {
 						log.Printf("Transcoding '%s' to '%s' at %s ...", n.FilesystemPath, destPath, ffmpegBitrateStr)
 					}
+					// try without discarding album art; and if that fails try once more discarding video entirely:
+					// TODO(cdzombak): this is insanely ugly
 					out, err := Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", n.FilesystemPath, "-c:v", "copy", "-c:a", "aac", "-b:a", ffmpegBitrateStr, destPath})
 					if err != nil {
 						_ = os.Remove(destPath)
-						return fmt.Errorf("transcode '%s' failed: %w: %s", n.FilesystemPath, err, out)
+						if *verboseFlag {
+							log.Printf("Transcoding of '%s' failed. Trying again without video. Error was: %s %w", n.FilesystemPath, out, err)
+						}
+						out, err := Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", n.FilesystemPath, "-vn", "-c:a", "aac", "-b:a", ffmpegBitrateStr, destPath})
+						if err != nil {
+							_ = os.Remove(destPath)
+							return fmt.Errorf("transcode '%s' failed: %w: %s", n.FilesystemPath, err, out)
+						}
 					}
 				} else if *verboseFlag {
 					log.Printf("[dry run] Would transcode '%s' to '%s' at %s", n.FilesystemPath, destPath, ffmpegBitrateStr)
