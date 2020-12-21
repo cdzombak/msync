@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 )
 
 var version = "undefined"
@@ -33,6 +32,7 @@ var (
 	maxBitrateKbpsFlag           = flag.Int("max-kbps", 192, "Maximum bitrate, in Kbps, for destination music library.")
 	dryRunFlag                   = flag.Bool("dry-run", false, "If true, do not modify anything on the filesystem.")
 	removeOtherFilesFromDestFlag = flag.Bool("remove-nonmusic-from-dest", false, "If true, remove any non-music files from the destination.")
+	makeSymlinksFlag             = flag.Bool("symlink", false, "If true, make symlinks from the destination to the source for music files below the maximum bitrate. (If not set, make a proper copy of the file.)")
 	verboseFlag                  = flag.Bool("verbose", false, "Log detailed output to stderr.")
 	printVersion                 = flag.Bool("version", false, "Print version and exit.")
 )
@@ -66,21 +66,17 @@ func msyncMain() error {
 		return err
 	}
 
-	started := time.Now()
 	sourceTree, err := MakeMusicTree(sourceRootPath)
 	if err != nil {
 		return err
 	}
-	elapsed := time.Since(started).Round(time.Second)
-	fmt.Printf("built tree for source (%s) in %s; size is %s\n", sourceRootPath, elapsed.String(), ByteCountBothStyles(sourceTree.CalculateSize()))
+	fmt.Printf("built tree for source (%s); size is %s\n", sourceRootPath, ByteCountBothStyles(sourceTree.CalculateSize()))
 
-	started = time.Now()
 	destTree, err := MakeMusicTree(destRootPath)
 	if err != nil {
 		return err
 	}
-	elapsed = time.Since(started).Round(time.Second)
-	fmt.Printf("built tree for dest (%s) in %s; size is %s\n", destRootPath, elapsed.String(), ByteCountBothStyles(destTree.CalculateSize()))
+	fmt.Printf("built tree for dest (%s); size is %s\n", destRootPath, ByteCountBothStyles(destTree.CalculateSize()))
 
 	maxBitrate := *maxBitrateKbpsFlag * 1000
 
@@ -126,6 +122,7 @@ func msyncMain() error {
 	}
 
 	ffmpegBitrateStr := strconv.Itoa(*maxBitrateKbpsFlag) + "k"
+	didMkdir := make(map[string]bool)
 
 	// TODO(cdzombak): walk is just planning; then execute plan with progress
 	// either copy/link or reencode all music files & directories from source that aren't in dest:
@@ -152,16 +149,19 @@ func msyncMain() error {
 			if n.IsFile {
 				destDirPath = filepath.Dir(destDirPath)
 			}
-			if !*dryRunFlag {
-				if *verboseFlag {
-					log.Printf("mkdir -p '%s'", destDirPath)
+			if _, ok := didMkdir[destDirPath]; !ok { // cut down on logs in verbose mode
+				if !*dryRunFlag {
+					if *verboseFlag {
+						log.Printf("mkdir -p '%s'", destDirPath)
+					}
+					err := os.MkdirAll(destDirPath, destTree.Mode)
+					if err != nil {
+						return err
+					}
+				} else if *verboseFlag {
+					log.Printf("[dry run] would mkdir -p '%s'", destDirPath)
 				}
-				err := os.MkdirAll(destDirPath, destTree.Mode)
-				if err != nil {
-					return err
-				}
-			} else if *verboseFlag {
-				log.Printf("[dry run] would mkdir -p '%s'", destDirPath)
+				didMkdir[destDirPath] = true
 			}
 
 			// insert new dir node(s) in dest tree as needed:
@@ -213,17 +213,30 @@ func msyncMain() error {
 				}
 			} else {
 				newFileBitrate = n.FileBitrate
-				// TODO(cdzombak): support copy instead
-				if !*dryRunFlag {
-					if *verboseFlag {
-						log.Printf("symlinking '%s' to '%s'", destPath, n.FilesystemPath)
+				if *makeSymlinksFlag {
+					if !*dryRunFlag {
+						if *verboseFlag {
+							log.Printf("symlinking '%s' to '%s'", destPath, n.FilesystemPath)
+						}
+						err := os.Symlink(n.FilesystemPath, destPath)
+						if err != nil {
+							return fmt.Errorf("failed to symlink '%s' to '%s': %w", destPath, n.FilesystemPath, err)
+						}
+					} else if *verboseFlag {
+						log.Printf("[dry run] would symlink '%s' to '%s'", destPath, n.FilesystemPath)
 					}
-					err := os.Symlink(n.FilesystemPath, destPath)
-					if err != nil {
-						return fmt.Errorf("failed to symlink '%s' to '%s': %w", destPath, n.FilesystemPath, err)
+				} else {
+					if !*dryRunFlag {
+						if *verboseFlag {
+							log.Printf("copying '%s' to '%s'", n.FilesystemPath, destPath)
+						}
+						err := CopyFile(n.FilesystemPath, destPath)
+						if err != nil {
+							return fmt.Errorf("failed to copy '%s' to '%s': %w", n.FilesystemPath, destPath, err)
+						}
+					} else if *verboseFlag {
+						log.Printf("[dry run] would copy '%s' to '%s'", n.FilesystemPath, destPath)
 					}
-				} else if *verboseFlag {
-					log.Printf("[dry run] would symlink '%s' to '%s'", destPath, n.FilesystemPath)
 				}
 			}
 
