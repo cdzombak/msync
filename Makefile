@@ -1,5 +1,5 @@
 SHELL:=/usr/bin/env bash
-VERSION:=$(shell [ -z "$$(git tag)" ] && echo "$$(git describe --always --long --dirty)" || echo "$$(git tag | sed 's/^v//')")
+VERSION:=$(shell [ -z "$$(git tag --points-at HEAD)" ] && echo "$$(git describe --always --long --dirty)" || echo "$$(git tag --points-at HEAD | sed 's/^v//')")
 GO_FILES:=$(shell find . -name '*.go' | grep -v /vendor/)
 BIN_NAME:=msync
 
