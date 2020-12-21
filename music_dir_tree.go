@@ -8,12 +8,14 @@ import (
 	"path/filepath"
 )
 
-// TODO(cdzombak): consider whether to normalize BaseNameNormalized to lowercase only if destination is a case insensitive filesystem
+// TODO(cdzombak): normalize BaseNameNormalized to lowercase only if destination is a case insensitive filesystem, or allow customizing
 
 type MusicTreeNode struct {
-	TreePath           []string                  // path to this node (normalized base names, as in keys of the Children dict) from the root of its MusicNodeTree
+	TreePath           []string                  // path to this node (normalized base names, as in keys of the Children dict) from the root of its MusicNodeTree. when walking a tree we could keep track of this dynamically, but this just makes comparing trees easier.
+	FilesystemPath     string                    // path to this node on the filesystem, relative to whatever the root path for the tree is. (in the msync app, these are always absolute paths.)
 	IsDirectory        bool                      // whether this represents a directory
 	IsFile             bool                      // whether this represents a file
+	IsMusicFile        bool                      // whether this represents a music file
 	BaseName           string                    // base name of this entity on disk
 	BaseNameNormalized string                    // base name of this entity, normalized to lowercase and with music file extensions removed
 	FileSize           int64                     // size of this entity, iff it's a file
@@ -38,6 +40,7 @@ func MakeMusicTreeNode(filePath string, parentNodePath []string, isRootNode bool
 	n := &MusicTreeNode{
 		BaseName:           rootInfo.Name(),
 		BaseNameNormalized: normalizeFileNameForComparing(rootInfo.Name()),
+		FilesystemPath:     filePath,
 		Mode:               rootInfo.Mode(),
 	}
 	if !isRootNode {
@@ -72,21 +75,20 @@ func MakeMusicTreeNode(filePath string, parentNodePath []string, isRootNode bool
 	} else if n.IsFile {
 		n.FileSize = rootInfo.Size()
 		if isMusicFile(filePath) {
+			n.IsMusicFile = true
 			bitrate, err := fileBitrate(filePath)
 			if err != nil {
 				return nil, err
 			}
 			n.FileBitrate = bitrate
-		} else {
-			// skip anything that's not music (eg. booklet PDFs)
-			log.Printf("[info] skipping '%s' as it is not a music file", filePath)
-			return nil, nil
 		}
 	}
 	return n, nil
 }
 
-func (n *MusicTreeNode) CalculateSizeRecursive() int64 {
+// CalculateSize calculates the size on disk of this node and all its children.
+// It returns bytes.
+func (n *MusicTreeNode) CalculateSize() int64 {
 	if n.IsFile {
 		return n.FileSize
 	}
@@ -95,7 +97,7 @@ func (n *MusicTreeNode) CalculateSizeRecursive() int64 {
 	}
 	totalSize := int64(0)
 	for _, v := range n.Children {
-		totalSize += v.CalculateSizeRecursive()
+		totalSize += v.CalculateSize()
 	}
 	return totalSize
 }
@@ -119,4 +121,14 @@ func (n *MusicTreeNode) NodeAtTreePath(normalizedTreePath []string) *MusicTreeNo
 		return node.NodeAtTreePath(normalizedTreePath[1:])
 	}
 	return nil
+}
+
+// Walk walks every node in the given tree, calling the given callback for every node.
+func (n *MusicTreeNode) Walk(callback func(n *MusicTreeNode) error) error {
+	for _, childNode := range n.Children {
+		if err := childNode.Walk(callback); err != nil {
+			return err
+		}
+	}
+	return callback(n)
 }
