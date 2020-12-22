@@ -88,7 +88,7 @@ func msyncMain() error {
 		spin.HideCursor = true
 		spin.Start()
 	}
-	sourceTree, err := MakeMusicTree(sourceRootPath, func(currentPath string) {
+	sourceTree, warnings, err := MakeMusicTree(sourceRootPath, func(currentPath string) {
 		if spin == nil {
 			return
 		}
@@ -105,6 +105,7 @@ func msyncMain() error {
 	if err != nil {
 		return err
 	}
+	LogWarnings(warnings)
 	fmt.Printf("Source tree (%s) size is %s\n", sourceRootPath, ByteCountBothStyles(sourceTree.CalculateSize()))
 
 	fmt.Printf("Scanning destination directory (%s) ...\n", destRootPath)
@@ -113,7 +114,7 @@ func msyncMain() error {
 		spin.HideCursor = true
 		spin.Start()
 	}
-	destTree, err := MakeMusicTree(destRootPath, func(currentPath string) {
+	destTree, warnings, err := MakeMusicTree(destRootPath, func(currentPath string) {
 		if spin == nil {
 			return
 		}
@@ -130,6 +131,7 @@ func msyncMain() error {
 	if err != nil {
 		return err
 	}
+	LogWarnings(warnings)
 	fmt.Printf("Destination tree (%s) size is %s\n", destRootPath, ByteCountBothStyles(destTree.CalculateSize()))
 
 	targetBitrate := *maxBitrateKbpsFlag * 1000 // target bitrate for encoding
