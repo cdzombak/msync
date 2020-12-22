@@ -148,8 +148,12 @@ func msyncMain() error {
 	LogWarnings(warnings)
 	fmt.Printf("Destination tree (%s) size is %s\n", destRootPath, ByteCountBothStyles(destTree.CalculateSize()))
 
-	targetBitrate := *maxBitrateKbpsFlag * 1000 // target bitrate for encoding
-	maxBitrateForDestFiles := targetBitrate + 2000 // ffmpeg's aac encoder produces files a little bit above the target bitrate
+	// ffmpeg's aac encoder produces files a little bit above the target bitrate. so, when transcoding,
+	// we tell ffmpeg to target (max bitrate - 1Kbps), and we allow files in the destination dir to be
+	// (max bitrate + 2 Kbps). This mostly avoids deleting & re-transcoding the same files over and
+	// over across multiple runs with the same configuration.
+	targetTranscodeBitrate := *maxBitrateKbpsFlag * 1000 - 1000 // target bitrate for encoding
+	maxBitrateForDestFiles := targetTranscodeBitrate + 3000
 
 	// we could do this more efficiently by eg. combining remove passes, but I don't care.
 	// this makes the program logic easier to follow, and a separate count pass makes reporting progress easier.
@@ -356,7 +360,7 @@ func msyncMain() error {
 			var newFileMode os.FileMode
 			newFileBitrate := 0
 			if needsTranscode {
-				newFileBitrate = targetBitrate
+				newFileBitrate = targetTranscodeBitrate
 				if !*dryRunFlag {
 					if *verboseFlag {
 						log.Printf("Transcoding '%s' to '%s' at %s ...", n.FilesystemPath, destPath, ffmpegBitrateStr)
