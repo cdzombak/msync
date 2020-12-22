@@ -92,7 +92,10 @@ func msyncMain() error {
 		if spin == nil {
 			return
 		}
-		spin.Suffix = " " + strings.TrimPrefix(strings.TrimPrefix(currentPath, sourceRootPath), "/")
+		suffix := strings.TrimPrefix(currentPath, sourceRootPath)
+		suffix = strings.TrimPrefix(suffix, string(os.PathSeparator))
+		suffix = strings.SplitN(suffix, string(os.PathSeparator), 2)[0]
+		spin.Suffix = " " + suffix
 	})
 	if spin != nil {
 		spin.HideCursor = false
@@ -114,7 +117,10 @@ func msyncMain() error {
 		if spin == nil {
 			return
 		}
-		spin.Suffix = " " + strings.TrimPrefix(strings.TrimPrefix(currentPath, destRootPath), "/")
+		suffix := strings.TrimPrefix(currentPath, destRootPath)
+		suffix = strings.TrimPrefix(suffix, string(os.PathSeparator))
+		suffix = strings.SplitN(suffix, string(os.PathSeparator), 2)[0]
+		spin.Suffix = " " + suffix
 	})
 	if spin != nil {
 		spin.HideCursor = false
@@ -256,7 +262,7 @@ func msyncMain() error {
 	err = sourceTree.Walk(func(n *MusicTreeNode) error {
 		sourceI++
 		if spin != nil {
-			spin.Suffix = fmt.Sprintf(" syncing %d / %d (%.f%%): %s", sourceI, sourceCount, math.Round(100*float64(sourceI)/float64(sourceCount)), strings.TrimPrefix(strings.TrimPrefix(n.FilesystemPath, sourceRootPath), "/"))
+			spin.Suffix = fmt.Sprintf(" syncing %d / %d (%.f%%)", sourceI, sourceCount, math.Round(100*float64(sourceI)/float64(sourceCount)))
 		}
 		if n.IsFile && !n.IsMusicFile {
 			return nil
