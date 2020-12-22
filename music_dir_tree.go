@@ -26,15 +26,16 @@ type MusicTreeNode struct {
 	Children           map[string]*MusicTreeNode // map of BaseNameNormalized -> *MusicTreeNode, iff it's a directory. nil if it's a file.
 }
 
-func MakeMusicTree(filePath string) (*MusicTreeNode, error) {
-	return MakeMusicTreeNode(filePath, nil, true)
+func MakeMusicTree(filePath string, progress func(currentPath string)) (*MusicTreeNode, error) {
+	return MakeMusicTreeNode(filePath, nil, true, progress)
 }
 
 // MakeMusicTreeNode returns nil if the path does not point to a directory, regular file, or symlink.
-func MakeMusicTreeNode(filePath string, parentNodePath []string, isRootNode bool) (*MusicTreeNode, error) {
+func MakeMusicTreeNode(filePath string, parentNodePath []string, isRootNode bool, progress func(currentPath string)) (*MusicTreeNode, error) {
 	if *verboseFlag {
 		log.Printf("Scanning '%s' ...", filePath)
 	}
+	progress(filePath)
 	rootInfo, err := os.Stat(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat '%s': %w", filePath, err)
@@ -63,7 +64,7 @@ func MakeMusicTreeNode(filePath string, parentNodePath []string, isRootNode bool
 			return nil, fmt.Errorf("failed to list '%s': %w", filePath, err)
 		}
 		for _, child := range children {
-			childNode, err := MakeMusicTreeNode(filepath.Join(filePath, child.Name()), n.TreePath, false)
+			childNode, err := MakeMusicTreeNode(filepath.Join(filePath, child.Name()), n.TreePath, false, progress)
 			if err != nil {
 				return nil, err
 			}

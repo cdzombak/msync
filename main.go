@@ -5,10 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/briandowns/spinner"
 )
 
 var version = "undefined (dev?)"
@@ -57,6 +61,10 @@ func main() {
 	}
 }
 
+func useProgressIndicators() bool {
+	return !*verboseFlag && IsStdoutInteractive()
+}
+
 func msyncMain() error {
 	var fileCreateMode os.FileMode
 	if mode, err := strconv.ParseInt(*fileCreateModeFlag, 8, 64); err != nil {
@@ -74,15 +82,48 @@ func msyncMain() error {
 		return err
 	}
 
+	var spin *spinner.Spinner
+	spinFreq := 50*time.Millisecond
+
 	fmt.Printf("Scanning source directory (%s) ...\n", sourceRootPath)
-	sourceTree, err := MakeMusicTree(sourceRootPath)
+	if useProgressIndicators() {
+		spin = spinner.New(spinner.CharSets[14], spinFreq)
+		spin.HideCursor = true
+		spin.Start()
+	}
+	sourceTree, err := MakeMusicTree(sourceRootPath, func(currentPath string) {
+		if spin == nil {
+			return
+		}
+		spin.Suffix = " " + strings.TrimPrefix(strings.TrimPrefix(currentPath, sourceRootPath), "/")
+	})
+	if spin != nil {
+		spin.HideCursor = false
+		spin.Stop()
+		spin = nil
+	}
 	if err != nil {
 		return err
 	}
 	fmt.Printf("Source tree (%s) size is %s\n", sourceRootPath, ByteCountBothStyles(sourceTree.CalculateSize()))
 
 	fmt.Printf("Scanning destination directory (%s) ...\n", destRootPath)
-	destTree, err := MakeMusicTree(destRootPath)
+	if useProgressIndicators() {
+		spin = spinner.New(spinner.CharSets[14], spinFreq)
+		spin.HideCursor = true
+		spin.Start()
+	}
+	destTree, err := MakeMusicTree(destRootPath, func(currentPath string) {
+		if spin == nil {
+		return
+	}
+		spin.Suffix = " " + strings.TrimPrefix(strings.TrimPrefix(currentPath, destRootPath), "/")
+	})
+	if spin != nil {
+		spin.HideCursor = false
+		spin.Stop()
+		spin = nil
+	}
 	if err != nil {
 		return err
 	}
@@ -95,9 +136,28 @@ func msyncMain() error {
 
 	// remove anything from dest that isn't in source:
 	fmt.Println("Removing files/directories from the destination directory tree that are missing in source directory tree ...")
+	destI := 0
+	destCount := destTree.CountNodes()
+	if useProgressIndicators() {
+		spin = spinner.New(spinner.CharSets[14], spinFreq)
+		spin.HideCursor = true
+		spin.Start()
+	}
 	removeCount, err := destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
+		destI++
+		if spin != nil {
+			spin.Suffix = fmt.Sprintf(" checking %d / %d (%.f%%)", destI, destCount, math.Round(100*float64(destI)/float64(destCount)))
+		}
 		return !sourceTree.HasNodeAtTreePath(n.TreePath)
 	}, "item is gone from source directory")
+	if spin != nil {
+		spin.HideCursor = false
+		spin.Stop()
+		spin = nil
+	}
+	if err != nil {
+		return err
+	}
 	if removeCount > 0 {
 		if *dryRunFlag {
 			fmt.Printf("[dry run] Would remove %d files/directories from destination (%s) because the equivalent item is gone from source directory (%s)\n", removeCount, destTree.FilesystemPath, sourceTree.FilesystemPath)
@@ -111,9 +171,28 @@ func msyncMain() error {
 	if *removeOtherFilesFromDestFlag {
 		// remove anything from dest that isn't a music file:
 		fmt.Println("Removing non-music files from the destination directory tree ...")
+		destI = 0
+		destCount = destTree.CountNodes()
+		if useProgressIndicators() {
+			spin = spinner.New(spinner.CharSets[14], spinFreq)
+			spin.HideCursor = true
+			spin.Start()
+		}
 		removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
+			destI++
+			if spin != nil {
+				spin.Suffix = fmt.Sprintf(" checking %d / %d (%.f%%)", destI, destCount, math.Round(100*float64(destI)/float64(destCount)))
+			}
 			return !(n.IsDirectory || n.IsMusicFile)
 		}, "file is not a music file")
+		if spin != nil {
+			spin.HideCursor = false
+			spin.Stop()
+			spin = nil
+		}
+		if err != nil {
+			return err
+		}
 		if removeCount > 0 {
 			if *dryRunFlag {
 				fmt.Printf("[dry run] Would remove %d non-music files from destination (%s)\n", removeCount, destTree.FilesystemPath)
@@ -127,9 +206,28 @@ func msyncMain() error {
 
 	// remove anything from dest that has too-high bitrate:
 	fmt.Printf("Removing music files that exceed %d Kbps from the destination directory tree ...\n", *maxBitrateKbpsFlag)
+	destI = 0
+	destCount = destTree.CountNodes()
+	if useProgressIndicators() {
+		spin = spinner.New(spinner.CharSets[14], spinFreq)
+		spin.HideCursor = true
+		spin.Start()
+	}
 	removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
+		destI++
+		if spin != nil {
+			spin.Suffix = fmt.Sprintf(" checking %d / %d (%.f%%)", destI, destCount, math.Round(100*float64(destI)/float64(destCount)))
+		}
 		return n.IsMusicFile && n.FileBitrate > maxBitrate
 	}, fmt.Sprintf("its bitrate exceeds %d bps", maxBitrate))
+	if spin != nil {
+		spin.HideCursor = false
+		spin.Stop()
+		spin = nil
+	}
+	if err != nil {
+		return err
+	}
 	if removeCount > 0 {
 		if *dryRunFlag {
 			fmt.Printf("[dry run] Would remove %d files from destination (%s) because their bitrate exceeded %d Kbps\n", removeCount, destTree.FilesystemPath, *maxBitrateKbpsFlag)
@@ -150,7 +248,18 @@ func msyncMain() error {
 	} else {
 		fmt.Printf("Syncing music files from source to destination. Files over %d Kbps will be transcoded; others will be copied.\n", *maxBitrateKbpsFlag)
 	}
+	sourceI := 0
+	sourceCount := sourceTree.CountNodes()
+	if useProgressIndicators() {
+		spin = spinner.New(spinner.CharSets[14], spinFreq)
+		spin.HideCursor = true
+		spin.Start()
+	}
 	err = sourceTree.Walk(func(n *MusicTreeNode) error {
+		sourceI++
+		if spin != nil {
+			spin.Suffix = fmt.Sprintf(" syncing %d / %d (%.f%%): %s", sourceI, sourceCount, math.Round(100*float64(sourceI)/float64(sourceCount)), strings.TrimPrefix(strings.TrimPrefix(n.FilesystemPath, sourceRootPath), "/"))
+		}
 		if n.IsFile && !n.IsMusicFile {
 			return nil
 		}
@@ -311,6 +420,11 @@ func msyncMain() error {
 		}
 		return nil
 	})
+	if spin != nil {
+		spin.HideCursor = false
+		spin.Stop()
+		spin = nil
+	}
 	if err != nil {
 		return err
 	}
@@ -321,9 +435,27 @@ func msyncMain() error {
 	}
 
 	fmt.Println("Removing empty directories from the destination directory tree ...")
-	removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
+	destI = 0
+	destCount = destTree.CountNodes()
+	if useProgressIndicators() {
+		spin = spinner.New(spinner.CharSets[14], spinFreq)
+		spin.HideCursor = true
+		spin.Start()
+	}
+	removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {destI++
+		if spin != nil {
+			spin.Suffix = fmt.Sprintf(" checking %d / %d (%.f%%)", destI, destCount, math.Round(100*float64(destI)/float64(destCount)))
+		}
 		return n.IsDirectory && len(n.Children) == 0
 	}, "directory is empty")
+	if spin != nil {
+		spin.HideCursor = false
+		spin.Stop()
+		spin = nil
+	}
+	if err != nil {
+		return err
+	}
 	if removeCount > 0 {
 		if *dryRunFlag {
 			fmt.Printf("[dry run] Would remove %d empty directories from destination (%s)\n", removeCount, destTree.FilesystemPath)
