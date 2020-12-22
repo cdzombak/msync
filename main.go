@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/briandowns/spinner"
+	"golang.org/x/term"
 )
 
 var version = "undefined (dev?)"
@@ -79,6 +80,13 @@ func msyncMain() error {
 		return err
 	}
 
+	maxWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || maxWidth == 0 {
+		maxWidth = int(math.Round(80.0 * 0.7))
+	} else {
+		maxWidth = int(math.Round(float64(maxWidth) * 0.75))
+	}
+
 	var spin *spinner.Spinner
 	spinFreq := 50 * time.Millisecond
 
@@ -96,6 +104,9 @@ func msyncMain() error {
 		suffix := strings.TrimPrefix(currentPath, sourceRootPath)
 		suffix = strings.TrimPrefix(suffix, string(os.PathSeparator))
 		suffix = strings.SplitN(suffix, string(os.PathSeparator), 2)[0]
+		if len(suffix) > maxWidth {
+			suffix = suffix[:maxWidth-3] + "..."
+		}
 		spin.Suffix = " " + suffix
 	})
 	if spin != nil {
@@ -122,6 +133,9 @@ func msyncMain() error {
 		suffix := strings.TrimPrefix(currentPath, destRootPath)
 		suffix = strings.TrimPrefix(suffix, string(os.PathSeparator))
 		suffix = strings.SplitN(suffix, string(os.PathSeparator), 2)[0]
+		if len(suffix) > maxWidth {
+			suffix = suffix[:maxWidth] + "..."
+		}
 		spin.Suffix = " " + suffix
 	})
 	if spin != nil {
