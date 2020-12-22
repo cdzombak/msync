@@ -85,6 +85,7 @@ func msyncMain() error {
 	fmt.Printf("Scanning source directory (%s) ...\n", sourceRootPath)
 	if useProgressIndicators() {
 		spin = spinner.New(spinner.CharSets[14], spinFreq)
+		spin.Color("reset")
 		spin.HideCursor = true
 		spin.Start()
 	}
@@ -98,7 +99,6 @@ func msyncMain() error {
 		spin.Suffix = " " + suffix
 	})
 	if spin != nil {
-		spin.HideCursor = false
 		spin.Stop()
 		spin = nil
 	}
@@ -111,6 +111,7 @@ func msyncMain() error {
 	fmt.Printf("Scanning destination directory (%s) ...\n", destRootPath)
 	if useProgressIndicators() {
 		spin = spinner.New(spinner.CharSets[14], spinFreq)
+		spin.Color("reset")
 		spin.HideCursor = true
 		spin.Start()
 	}
@@ -124,7 +125,6 @@ func msyncMain() error {
 		spin.Suffix = " " + suffix
 	})
 	if spin != nil {
-		spin.HideCursor = false
 		spin.Stop()
 		spin = nil
 	}
@@ -146,6 +146,7 @@ func msyncMain() error {
 	destCount := destTree.CountNodes()
 	if useProgressIndicators() {
 		spin = spinner.New(spinner.CharSets[14], spinFreq)
+		spin.Color("reset")
 		spin.HideCursor = true
 		spin.Start()
 	}
@@ -157,7 +158,6 @@ func msyncMain() error {
 		return !sourceTree.HasNodeAtTreePath(n.TreePath)
 	}, "item is gone from source directory")
 	if spin != nil {
-		spin.HideCursor = false
 		spin.Stop()
 		spin = nil
 	}
@@ -181,6 +181,7 @@ func msyncMain() error {
 		destCount = destTree.CountNodes()
 		if useProgressIndicators() {
 			spin = spinner.New(spinner.CharSets[14], spinFreq)
+			spin.Color("reset")
 			spin.HideCursor = true
 			spin.Start()
 		}
@@ -192,7 +193,6 @@ func msyncMain() error {
 			return !(n.IsDirectory || n.IsMusicFile)
 		}, "file is not a music file")
 		if spin != nil {
-			spin.HideCursor = false
 			spin.Stop()
 			spin = nil
 		}
@@ -216,6 +216,7 @@ func msyncMain() error {
 	destCount = destTree.CountNodes()
 	if useProgressIndicators() {
 		spin = spinner.New(spinner.CharSets[14], spinFreq)
+		spin.Color("reset")
 		spin.HideCursor = true
 		spin.Start()
 	}
@@ -227,7 +228,6 @@ func msyncMain() error {
 		return n.IsMusicFile && n.FileBitrate > maxBitrateForDestFiles
 	}, fmt.Sprintf("its bitrate exceeds %d Kbps", *maxBitrateKbpsFlag))
 	if spin != nil {
-		spin.HideCursor = false
 		spin.Stop()
 		spin = nil
 	}
@@ -258,6 +258,7 @@ func msyncMain() error {
 	sourceCount := sourceTree.CountNodes()
 	if useProgressIndicators() {
 		spin = spinner.New(spinner.CharSets[14], spinFreq)
+		spin.Color("reset")
 		spin.HideCursor = true
 		spin.Start()
 	}
@@ -427,7 +428,6 @@ func msyncMain() error {
 		return nil
 	})
 	if spin != nil {
-		spin.HideCursor = false
 		spin.Stop()
 		spin = nil
 	}
@@ -445,6 +445,7 @@ func msyncMain() error {
 	destCount = destTree.CountNodes()
 	if useProgressIndicators() {
 		spin = spinner.New(spinner.CharSets[14], spinFreq)
+		spin.Color("reset")
 		spin.HideCursor = true
 		spin.Start()
 	}
@@ -456,7 +457,6 @@ func msyncMain() error {
 		return n.IsDirectory && len(n.Children) == 0
 	}, "directory is empty")
 	if spin != nil {
-		spin.HideCursor = false
 		spin.Stop()
 		spin = nil
 	}
