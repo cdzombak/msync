@@ -5,6 +5,9 @@ import "fmt"
 // https://yourbasic.org/golang/formatting-byte-size-to-human-readable-format/
 
 func ByteCountBothStyles(b int64) string {
+	if b == 0 {
+		return "0 B"
+	}
 	return fmt.Sprintf("%s (%s)", ByteCountSI(b), ByteCountIEC(b))
 }
 
