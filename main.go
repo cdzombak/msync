@@ -126,7 +126,8 @@ func msyncMain() error {
 	}
 	fmt.Printf("Destination tree (%s) size is %s\n", destRootPath, ByteCountBothStyles(destTree.CalculateSize()))
 
-	maxBitrate := *maxBitrateKbpsFlag * 1000
+	targetBitrate := *maxBitrateKbpsFlag * 1000 // target bitrate for encoding
+	maxBitrateForDestFiles := targetBitrate + 1000 // ffmpeg's aac encoder produces files a little bit above the target bitrate
 
 	// we could do this more efficiently by eg. combining remove passes, but I don't care.
 	// this makes the program logic easier to follow, and a separate count pass makes reporting progress easier.
@@ -215,8 +216,8 @@ func msyncMain() error {
 		if spin != nil {
 			spin.Suffix = fmt.Sprintf(" checking %d / %d (%.f%%)", destI, destCount, math.Round(100*float64(destI)/float64(destCount)))
 		}
-		return n.IsMusicFile && n.FileBitrate > maxBitrate
-	}, fmt.Sprintf("its bitrate exceeds %d bps", maxBitrate))
+		return n.IsMusicFile && n.FileBitrate > maxBitrateForDestFiles
+	}, fmt.Sprintf("its bitrate exceeds %d Kbps", *maxBitrateKbpsFlag))
 	if spin != nil {
 		spin.HideCursor = false
 		spin.Stop()
@@ -265,7 +266,7 @@ func msyncMain() error {
 
 			// file dest path may be different if reencoding.
 			needsTranscode := false
-			if n.IsFile && n.IsMusicFile && n.FileBitrate > maxBitrate {
+			if n.IsFile && n.IsMusicFile && n.FileBitrate > maxBitrateForDestFiles {
 				needsTranscode = true
 				destPath = removeExt(destPath) + transcodedFileExt
 				if *verboseFlag {
@@ -332,7 +333,7 @@ func msyncMain() error {
 			var newFileMode os.FileMode
 			newFileBitrate := 0
 			if needsTranscode {
-				newFileBitrate = maxBitrate
+				newFileBitrate = targetBitrate
 				if !*dryRunFlag {
 					if *verboseFlag {
 						log.Printf("Transcoding '%s' to '%s' at %s ...", n.FilesystemPath, destPath, ffmpegBitrateStr)
