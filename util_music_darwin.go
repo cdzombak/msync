@@ -8,6 +8,9 @@ import (
 
 var bitrateRegex = regexp.MustCompile("bit rate: (\\d+) bits per second")
 
+// fileBitrate returns the bitrate of the file at the given path, as determined by macOS's afinfo command.
+// An error is returned if afinfo cannot be found, returns a nonzero exit code, or
+// produces no or un-parsable output.
 func fileBitrate(path string) (int, error) {
 	out, err := Exec("afinfo", []string{path})
 	if err != nil {

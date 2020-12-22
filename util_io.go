@@ -3,8 +3,7 @@ package main
 import (
 	"io"
 	"os"
-
-	"golang.org/x/term"
+	"path/filepath"
 )
 
 // CopyFile copies the file at `from` to the path `to`, creating `to` with the
@@ -26,7 +25,8 @@ func CopyFile(from, to string, mode os.FileMode) error {
 	return err
 }
 
-// IsStdoutInteractive returns true iff standard output is an interactive terminal.
-func IsStdoutInteractive() bool {
-	return term.IsTerminal(int(os.Stdout.Fd()))
+// RemoveExt removes the extension, if any, from the given path/filename.
+func RemoveExt(name string) string {
+	ext := filepath.Ext(name)
+	return name[0 : len(name)-len(ext)]
 }

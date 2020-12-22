@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Bios-Marcel/wastebasket"
 )
@@ -189,4 +190,18 @@ func (n *MusicTreeNode) RemoveChildrenMatching(removeMatchFunc func(n *MusicTree
 		}
 	}
 	return removeCount, nil
+}
+
+func isMusicFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	// could also add m3a, mp4 but my library doesn't have these
+	return ext == ".mp3" || ext == ".m4a" || ext == ".flac" || ext == ".alac"
+}
+
+func normalizeFileNameForComparing(name string) string {
+	name = strings.ToLower(name)
+	if isMusicFile(name) {
+		name = RemoveExt(name)
+	}
+	return name
 }

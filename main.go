@@ -36,7 +36,6 @@ var (
 	dryRunFlag                   = flag.Bool("dry-run", false, "If true, do not modify anything on the filesystem.")
 	removeOtherFilesFromDestFlag = flag.Bool("remove-nonmusic-from-dest", false, "If true, remove any non-music files from the destination.")
 	makeSymlinksFlag             = flag.Bool("symlink", false, "If true, make symlinks from the destination to the source for music files below the maximum bitrate. (If not set, make a proper copy of the file.)")
-	verboseFlag                  = flag.Bool("verbose", false, "Log detailed output to stderr. Suppresses progress bars.")
 	printVersion                 = flag.Bool("version", false, "Print version and exit.")
 	fileCreateModeFlag           = flag.String("file-mode", "0644", "Octal value specifying mode for copied music files. Must begin with '0' or '0o'.")
 )
@@ -58,10 +57,6 @@ func main() {
 		fmt.Printf("Error: %s", err.Error())
 		os.Exit(1)
 	}
-}
-
-func useProgressIndicators() bool {
-	return !*verboseFlag && IsStdoutInteractive()
 }
 
 func msyncMain() error {
@@ -116,7 +111,7 @@ func msyncMain() error {
 	if err != nil {
 		return err
 	}
-	LogWarnings(warnings)
+	PrintWarnings(warnings)
 	fmt.Printf("Source tree (%s) size is %s\n", sourceRootPath, ByteCountBothStyles(sourceTree.CalculateSize()))
 
 	fmt.Printf("Scanning destination directory (%s) ...\n", destRootPath)
@@ -145,15 +140,16 @@ func msyncMain() error {
 	if err != nil {
 		return err
 	}
-	LogWarnings(warnings)
+	PrintWarnings(warnings)
 	fmt.Printf("Destination tree (%s) size is %s\n", destRootPath, ByteCountBothStyles(destTree.CalculateSize()))
 
 	// ffmpeg's aac encoder produces files a little bit above the target bitrate. so, when transcoding,
 	// we tell ffmpeg to target (max bitrate - 1Kbps), and we allow files in the destination dir to be
 	// (max bitrate + 2 Kbps). This mostly avoids deleting & re-transcoding the same files over and
 	// over across multiple runs with the same configuration.
-	targetTranscodeBitrate := *maxBitrateKbpsFlag * 1000 - 1000 // target bitrate for encoding
+	targetTranscodeBitrate := *maxBitrateKbpsFlag*1000 - 1000 // target bitrate for encoding
 	maxBitrateForDestFiles := targetTranscodeBitrate + 3000
+	const transcodedFileExt = ".m4a"
 
 	// we could do this more efficiently by eg. combining remove passes, but I don't care.
 	// this makes the program logic easier to follow, and a separate count pass makes reporting progress easier.
@@ -295,7 +291,7 @@ func msyncMain() error {
 			needsTranscode := false
 			if n.IsFile && n.IsMusicFile && n.FileBitrate > maxBitrateForDestFiles {
 				needsTranscode = true
-				destPath = removeExt(destPath) + transcodedFileExt
+				destPath = RemoveExt(destPath) + transcodedFileExt
 				if *verboseFlag {
 					log.Printf("%s is missing from destination; will be transcoded to %s", n.FilesystemPath, destPath)
 				}
