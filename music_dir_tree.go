@@ -104,6 +104,18 @@ func (n *MusicTreeNode) CalculateSize() int64 {
 	return totalSize
 }
 
+// CountNodes returns the number of nodes under and including this node.
+func (n *MusicTreeNode) CountNodes() int64 {
+	if n.IsFile || n.Children == nil {
+		return 1
+	}
+	totalCount := int64(1)
+	for _, v := range n.Children {
+		totalCount += v.CountNodes()
+	}
+	return totalCount
+}
+
 // NodeAtTreePath returns true iff a node exists at the specified path down the tree from this node.
 // The given path must be normalized.
 func (n *MusicTreeNode) HasNodeAtTreePath(normalizedTreePath []string) bool {
