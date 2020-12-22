@@ -19,7 +19,7 @@ var version = "undefined (dev?)"
 
 func usage() {
 	fmt.Printf("Usage: %s -from /musicsource -to /musicdest [OPTIONS]\n", filepath.Base(os.Args[0]))
-	fmt.Printf("Sync a music library from a source to dest, reencoding files with bitrates over -max-kbps and copying or making symlinks for other files.\n")
+	fmt.Printf("Sync a music library from a source to dest, re-encoding files with bitrates over -max-kbps and copying or making symlinks for other files.\n")
 	fmt.Printf("Symbolic links in both the source and destination directories are followed.\n\n")
 	fmt.Printf("Options:\n")
 	flag.PrintDefaults()
@@ -30,7 +30,7 @@ func usage() {
 
 var (
 	fromFlag                     = flag.String("from", "", "Source directory with music library. (Required)")
-	toFlag                       = flag.String("to", "", "Destination directory for mirrored/reencoded music library. (Required)")
+	toFlag                       = flag.String("to", "", "Destination directory for mirrored/re-encoded music library. (Required)")
 	maxBitrateKbpsFlag           = flag.Int("max-kbps", 192, "Maximum bitrate, in Kbps, for destination music library.")
 	dryRunFlag                   = flag.Bool("dry-run", false, "If true, do not modify anything on the filesystem.")
 	removeOtherFilesFromDestFlag = flag.Bool("remove-nonmusic-from-dest", false, "If true, remove any non-music files from the destination.")
@@ -240,7 +240,7 @@ func msyncMain() error {
 	didMkdir := make(map[string]bool)
 	filesSyncedCount := 0
 
-	// either copy/link or reencode all music files & directories from source that aren't in dest:
+	// either copy/link or re-encode all music files & directories from source that aren't in dest:
 	if *makeSymlinksFlag {
 		fmt.Printf("Syncing music files from source to destination. Files over %d Kbps will be transcoded; others will be symlinked.\n", *maxBitrateKbpsFlag)
 	} else {
@@ -264,7 +264,7 @@ func msyncMain() error {
 		if !destTree.HasNodeAtTreePath(n.TreePath) {
 			destPath := strings.Replace(n.FilesystemPath, sourceRootPath, destRootPath, 1)
 
-			// file dest path may be different if reencoding.
+			// file dest path may be different if re-encoding.
 			needsTranscode := false
 			if n.IsFile && n.IsMusicFile && n.FileBitrate > maxBitrateForDestFiles {
 				needsTranscode = true
@@ -344,7 +344,7 @@ func msyncMain() error {
 					if err != nil {
 						_ = os.Remove(destPath)
 						if *verboseFlag {
-							log.Printf("Transcoding of '%s' failed. Trying again without video. Error was: %s %w", n.FilesystemPath, out, err)
+							log.Printf("Transcoding of '%s' failed. Trying again without video. Error was: %s %s", n.FilesystemPath, out, err)
 						}
 						out, err := Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", n.FilesystemPath, "-vn", "-c:a", "aac", "-b:a", ffmpegBitrateStr, destPath})
 						if err != nil {
