@@ -135,7 +135,7 @@ func msyncMain() error {
 	fmt.Printf("Destination tree (%s) size is %s\n", destRootPath, ByteCountBothStyles(destTree.CalculateSize()))
 
 	targetBitrate := *maxBitrateKbpsFlag * 1000 // target bitrate for encoding
-	maxBitrateForDestFiles := targetBitrate + 1000 // ffmpeg's aac encoder produces files a little bit above the target bitrate
+	maxBitrateForDestFiles := targetBitrate + 2000 // ffmpeg's aac encoder produces files a little bit above the target bitrate
 
 	// we could do this more efficiently by eg. combining remove passes, but I don't care.
 	// this makes the program logic easier to follow, and a separate count pass makes reporting progress easier.
