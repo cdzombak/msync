@@ -10,8 +10,7 @@ import (
 	"github.com/Bios-Marcel/wastebasket"
 )
 
-// TODO(cdzombak): normalize BaseNameNormalized to lowercase only if destination is a case insensitive filesystem, or allow customizing
-
+// MusicTreeNode is a node representing a file or directory in a tree of music files on disk.
 type MusicTreeNode struct {
 	TreePath           []string                  // path to this node (normalized base names, as in keys of the Children dict) from the root of its MusicNodeTree. when walking a tree we could keep track of this dynamically, but this just makes comparing trees easier.
 	FilesystemPath     string                    // path to this node on the filesystem, relative to whatever the root path for the tree is. (in the msync app, these are always absolute paths.)
@@ -26,6 +25,8 @@ type MusicTreeNode struct {
 	Children           map[string]*MusicTreeNode // map of BaseNameNormalized -> *MusicTreeNode, iff it's a directory. nil if it's a file.
 }
 
+// MakeMusicTree builds a music tree rooted at the given path on disk.
+// The given progress function is called with each path as it's scanned.
 func MakeMusicTree(filePath string, progress func(currentPath string)) (*MusicTreeNode, error) {
 	return MakeMusicTreeNode(filePath, nil, true, progress)
 }
@@ -117,7 +118,7 @@ func (n *MusicTreeNode) CountNodes() int64 {
 	return totalCount
 }
 
-// NodeAtTreePath returns true iff a node exists at the specified path down the tree from this node.
+// HasNodeAtTreePath returns true iff a node exists at the specified path down the tree from this node.
 // The given path must be normalized.
 func (n *MusicTreeNode) HasNodeAtTreePath(normalizedTreePath []string) bool {
 	return n.NodeAtTreePath(normalizedTreePath) != nil

@@ -5,6 +5,8 @@ import (
 	"os"
 )
 
+// CopyFile copies the file at `from` to the path `to`, creating `to` with the
+// given permissions.
 func CopyFile(from, to string, mode os.FileMode) error {
 	fromFile, err := os.Open(from)
 	if err != nil {
@@ -22,6 +24,7 @@ func CopyFile(from, to string, mode os.FileMode) error {
 	return err
 }
 
+// IsStdoutInteractive returns true iff standard output is an interactive terminal.
 func IsStdoutInteractive() bool {
 	if fileInfo, _ := os.Stdout.Stat(); (fileInfo.Mode() & os.ModeCharDevice) != 0 {
 		return true

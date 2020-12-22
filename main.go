@@ -17,8 +17,6 @@ import (
 
 var version = "undefined (dev?)"
 
-// TODO(cdzombak): unhide cursor on any exit
-
 func usage() {
 	fmt.Printf("Usage: %s -from /musicsource -to /musicdest [OPTIONS]\n", filepath.Base(os.Args[0]))
 	fmt.Printf("Sync a music library from a source to dest, reencoding files with bitrates over -max-kbps and copying or making symlinks for other files.\n")
@@ -56,7 +54,7 @@ func main() {
 	}
 
 	if err := msyncMain(); err != nil {
-		fmt.Println(err)
+		fmt.Printf("Error: %s", err.Error())
 		os.Exit(1)
 	}
 }
@@ -66,12 +64,11 @@ func useProgressIndicators() bool {
 }
 
 func msyncMain() error {
-	var fileCreateMode os.FileMode
-	if mode, err := strconv.ParseInt(*fileCreateModeFlag, 8, 64); err != nil {
+	mode, err := strconv.ParseInt(*fileCreateModeFlag, 8, 64)
+	if err != nil {
 		return errors.New("-file-mode must be an octal value parsable by strconv.ParseInt")
-	} else {
-		fileCreateMode = os.FileMode(mode)
 	}
+	fileCreateMode := os.FileMode(mode)
 
 	sourceRootPath, err := filepath.Abs(*fromFlag)
 	if err != nil {
@@ -83,7 +80,7 @@ func msyncMain() error {
 	}
 
 	var spin *spinner.Spinner
-	spinFreq := 50*time.Millisecond
+	spinFreq := 50 * time.Millisecond
 
 	fmt.Printf("Scanning source directory (%s) ...\n", sourceRootPath)
 	if useProgressIndicators() {
@@ -115,8 +112,8 @@ func msyncMain() error {
 	}
 	destTree, err := MakeMusicTree(destRootPath, func(currentPath string) {
 		if spin == nil {
-		return
-	}
+			return
+		}
 		spin.Suffix = " " + strings.TrimPrefix(strings.TrimPrefix(currentPath, destRootPath), "/")
 	})
 	if spin != nil {
@@ -341,7 +338,7 @@ func msyncMain() error {
 						log.Printf("Transcoding '%s' to '%s' at %s ...", n.FilesystemPath, destPath, ffmpegBitrateStr)
 					}
 					// try without discarding album art; and if that fails try once more discarding video entirely:
-					// TODO(cdzombak): this is insanely ugly
+					// TODO(cdzombak): this is insanely ugly. refactor: https://github.com/cdzombak/msync/issues/5
 					out, err := Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", n.FilesystemPath, "-c:v", "copy", "-c:a", "aac", "-b:a", ffmpegBitrateStr, destPath})
 					if err != nil {
 						_ = os.Remove(destPath)
@@ -442,7 +439,8 @@ func msyncMain() error {
 		spin.HideCursor = true
 		spin.Start()
 	}
-	removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {destI++
+	removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
+		destI++
 		if spin != nil {
 			spin.Suffix = fmt.Sprintf(" checking %d / %d (%.f%%)", destI, destCount, math.Round(100*float64(destI)/float64(destCount)))
 		}

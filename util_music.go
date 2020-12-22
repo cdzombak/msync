@@ -10,7 +10,6 @@ const transcodedFileExt = ".m4a"
 func isMusicFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	// could also add m3a, mp4 but my library doesn't have these
-	// TODO(cdzombak): allow customizing music extensions
 	return ext == ".mp3" || ext == ".m4a" || ext == ".flac" || ext == ".alac"
 }
 
