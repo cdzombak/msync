@@ -17,7 +17,7 @@ import (
 
 var version = "undefined (dev?)"
 
-// TODO(cdzombak): add a progress bar https://github.com/schollz/progressbar
+// TODO(cdzombak): unhide cursor on any exit
 
 func usage() {
 	fmt.Printf("Usage: %s -from /musicsource -to /musicdest [OPTIONS]\n", filepath.Base(os.Args[0]))
