@@ -3,6 +3,8 @@ package main
 import (
 	"io"
 	"os"
+
+	"golang.org/x/term"
 )
 
 // CopyFile copies the file at `from` to the path `to`, creating `to` with the
@@ -26,8 +28,5 @@ func CopyFile(from, to string, mode os.FileMode) error {
 
 // IsStdoutInteractive returns true iff standard output is an interactive terminal.
 func IsStdoutInteractive() bool {
-	if fileInfo, _ := os.Stdout.Stat(); (fileInfo.Mode() & os.ModeCharDevice) != 0 {
-		return true
-	}
-	return false
+	return term.IsTerminal(int(os.Stdout.Fd()))
 }
