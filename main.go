@@ -82,7 +82,7 @@ func msyncMain() error {
 
 	CLIOut(ctx).Log(fmt.Sprintf("Scanning source directory (%s) ...", sourceRootPath))
 	spinCtx, spinStop := WithSpinner(ctx)
-	sourceTree, warnings, err := MakeMusicTree(sourceRootPath, func(currentPath string) {
+	sourceTree, err := MakeMusicTree(spinCtx, sourceRootPath, func(currentPath string) {
 		if !CLIOut(spinCtx).HasSpinner() {
 			return
 		}
@@ -95,12 +95,11 @@ func msyncMain() error {
 	if err != nil {
 		return err
 	}
-	CLIOut(ctx).Warnings(warnings) // TODO(cdzombak): instead, just log & CLIOut buffers
 	CLIOut(ctx).Log(fmt.Sprintf("Source tree (%s) size is %s", sourceRootPath, ByteCountBothStyles(sourceTree.CalculateSize())))
 
 	CLIOut(ctx).Log(fmt.Sprintf("Scanning destination directory (%s) ...", destRootPath))
 	spinCtx, spinStop = WithSpinner(ctx)
-	destTree, warnings, err := MakeMusicTree(destRootPath, func(currentPath string) {
+	destTree, err := MakeMusicTree(spinCtx, destRootPath, func(currentPath string) {
 		if !CLIOut(spinCtx).HasSpinner() {
 			return
 		}
@@ -113,7 +112,6 @@ func msyncMain() error {
 	if err != nil {
 		return err
 	}
-	CLIOut(ctx).Warnings(warnings) // TODO(cdzombak): instead, just log & CLIOut buffers
 	CLIOut(ctx).Log(fmt.Sprintf("Destination tree (%s) size is %s", destRootPath, ByteCountBothStyles(destTree.CalculateSize())))
 
 	// ffmpeg's aac encoder produces files a little bit above the target bitrate. so, when transcoding,
@@ -132,7 +130,7 @@ func msyncMain() error {
 	destI := int64(0)
 	destCount := destTree.CountNodes()
 	spinCtx, spinStop = WithSpinner(ctx)
-	spinCtx = SpinnerTotal(ctx, destCount)
+	spinCtx = SpinnerTotal(spinCtx, destCount)
 	removeCount, err := destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
 		destI++
 		CLIOut(spinCtx).SpinProgress(destI, "checking")
@@ -158,7 +156,7 @@ func msyncMain() error {
 		destI = 0
 		destCount = destTree.CountNodes()
 		spinCtx, spinStop = WithSpinner(ctx)
-		spinCtx = SpinnerTotal(ctx, destCount)
+		spinCtx = SpinnerTotal(spinCtx, destCount)
 		removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
 			destI++
 			CLIOut(spinCtx).SpinProgress(destI, "checking")
@@ -184,7 +182,7 @@ func msyncMain() error {
 	destI = 0
 	destCount = destTree.CountNodes()
 	spinCtx, spinStop = WithSpinner(ctx)
-	spinCtx = SpinnerTotal(ctx, destCount)
+	spinCtx = SpinnerTotal(spinCtx, destCount)
 	removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
 		destI++
 		CLIOut(spinCtx).SpinProgress(destI, "checking")
@@ -217,7 +215,7 @@ func msyncMain() error {
 	sourceI := int64(0)
 	sourceCount := sourceTree.CountNodes()
 	spinCtx, spinStop = WithSpinner(ctx)
-	spinCtx = SpinnerTotal(ctx, sourceCount)
+	spinCtx = SpinnerTotal(spinCtx, sourceCount)
 	err = sourceTree.Walk(func(n *MusicTreeNode) error {
 		sourceI++
 		CLIOut(spinCtx).SpinProgress(sourceI, "syncing")
@@ -383,7 +381,7 @@ func msyncMain() error {
 	destI = 0
 	destCount = destTree.CountNodes()
 	spinCtx, spinStop = WithSpinner(ctx)
-	spinCtx = SpinnerTotal(ctx, destCount)
+	spinCtx = SpinnerTotal(spinCtx, destCount)
 	removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
 		destI++
 		CLIOut(spinCtx).SpinProgress(destI, "checking")
@@ -403,6 +401,7 @@ func msyncMain() error {
 		CLIOut(ctx).Log("0 directories affected.")
 	}
 
+	CLIOut(ctx).Log("")
 	CLIOut(ctx).Log(fmt.Sprintf("Destination library size is now %s.", ByteCountBothStyles(destTree.CalculateSize())))
 	CLIOut(ctx).Log("Completed!")
 

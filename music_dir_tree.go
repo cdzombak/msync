@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -28,22 +29,19 @@ type MusicTreeNode struct {
 
 // MakeMusicTree builds a music tree rooted at the given path on disk.
 // The given progress function is called with each path as it's scanned.
-// Returns a three-tuple of (tree root node, warnings incurred during scan, error)
-func MakeMusicTree(filePath string, progress func(currentPath string)) (*MusicTreeNode, []string, error) {
-	return MakeMusicTreeNode(filePath, nil, true, progress)
+func MakeMusicTree(ctx context.Context, filePath string, progress func(currentPath string)) (*MusicTreeNode, error) {
+	return MakeMusicTreeNode(ctx, filePath, nil, true, progress)
 }
 
 // MakeMusicTreeNode returns nil if the path does not point to a directory, regular file, or symlink.
-// Returns a three-tuple of (tree root node, warnings incurred during scan, error)
-func MakeMusicTreeNode(filePath string, parentNodePath []string, isRootNode bool, progress func(currentPath string)) (*MusicTreeNode, []string, error) {
+func MakeMusicTreeNode(ctx context.Context, filePath string, parentNodePath []string, isRootNode bool, progress func(currentPath string)) (*MusicTreeNode, error) {
 	if *verboseFlag {
 		log.Printf("Scanning '%s' ...", filePath)
 	}
 	progress(filePath)
-	var warnings []string
 	rootInfo, err := os.Stat(filePath)
 	if err != nil {
-		return nil, warnings, fmt.Errorf("failed to stat '%s': %w", filePath, err)
+		return nil, fmt.Errorf("failed to stat '%s': %w", filePath, err)
 	}
 	n := &MusicTreeNode{
 		BaseName:           rootInfo.Name(),
@@ -59,26 +57,23 @@ func MakeMusicTreeNode(filePath string, parentNodePath []string, isRootNode bool
 	} else if n.Mode.IsRegular() || n.Mode&os.ModeSymlink != 0 {
 		n.IsFile = true
 	} else {
-		warnings = append(warnings, fmt.Sprintf("Skipping '%s': it is not a regular file.", filePath))
-		return nil, warnings, nil
+		CLIOut(ctx).Warning(fmt.Sprintf("Skipping '%s': it is not a regular file.", filePath))
+		return nil, nil
 	}
 	if n.IsDirectory {
 		n.Children = make(map[string]*MusicTreeNode)
 		children, err := ioutil.ReadDir(filePath)
 		if err != nil {
-			return nil, warnings, fmt.Errorf("failed to list '%s': %w", filePath, err)
+			return nil, fmt.Errorf("failed to list '%s': %w", filePath, err)
 		}
 		for _, child := range children {
-			childNode, childWarnings, err := MakeMusicTreeNode(filepath.Join(filePath, child.Name()), n.TreePath, false, progress)
-			for _, w := range childWarnings {
-				warnings = append(warnings, w)
-			}
+			childNode, err := MakeMusicTreeNode(ctx, filepath.Join(filePath, child.Name()), n.TreePath, false, progress)
 			if err != nil {
-				return nil, warnings, err
+				return nil, err
 			}
 			if childNode != nil {
 				if existingNode, ok := n.Children[childNode.BaseNameNormalized]; ok {
-					warnings = append(warnings, fmt.Sprintf("Normalized name collision in '%s': '%s' and '%s'.", filePath, existingNode.BaseName, childNode.BaseName))
+					CLIOut(ctx).Warning(fmt.Sprintf("Normalized name collision in '%s': '%s' and '%s'.", filePath, existingNode.BaseName, childNode.BaseName))
 				}
 				n.Children[childNode.BaseNameNormalized] = childNode
 			}
@@ -89,12 +84,12 @@ func MakeMusicTreeNode(filePath string, parentNodePath []string, isRootNode bool
 			n.IsMusicFile = true
 			bitrate, err := fileBitrate(filePath)
 			if err != nil {
-				return nil, warnings, err
+				return nil, err
 			}
 			n.FileBitrate = bitrate
 		}
 	}
-	return n, warnings, nil
+	return n, nil
 }
 
 // CalculateSize calculates the size on disk of this node and all its children.

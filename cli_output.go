@@ -33,10 +33,11 @@ func (c contextKey) String() string {
 }
 
 type CLIOutConfig struct {
-	verbose      bool
-	spinner      *spinner.Spinner
-	spinnerTotal int64
-	maxWidth     int
+	verbose         bool
+	spinner         *spinner.Spinner
+	spinnerTotal    int64
+	maxSpinMsgWidth int
+	spinLogBuffer   *spinningLogBuffer
 }
 
 var cliOutMgrContextKey = contextKey("cliOutMgr")
@@ -83,11 +84,15 @@ func WithSpinner(ctx context.Context) (context.Context, context.CancelFunc) {
 	} else {
 		maxWidth = int(math.Round(float64(maxWidth) * 0.75))
 	}
-	cliOut.maxWidth = maxWidth
+	cliOut.maxSpinMsgWidth = maxWidth
 
 	if cliOut.spinner == nil {
 		cliOut.spinner = spinner.New(spinner.CharSets[14], 50*time.Millisecond)
 	}
+	if cliOut.spinLogBuffer == nil {
+		cliOut.spinLogBuffer = &spinningLogBuffer{}
+	}
+
 	_ = cliOut.spinner.Color("reset")
 	cliOut.spinner.HideCursor = true
 	if !cliOut.spinner.Active() {
@@ -98,6 +103,9 @@ func WithSpinner(ctx context.Context) (context.Context, context.CancelFunc) {
 	cancel2 := func() {
 		cliOut.spinner.HideCursor = false
 		cliOut.spinner.Stop()
+		if cliOut.spinLogBuffer != nil && len(cliOut.spinLogBuffer.logs) > 0 {
+			cliOut.LogMulti(cliOut.spinLogBuffer.logs)
+		}
 		cancel()
 	}
 
@@ -108,6 +116,9 @@ func SpinnerTotal(ctx context.Context, total int64) context.Context {
 	cliOut, ok := ctx.Value(cliOutMgrContextKey).(CLIOutConfig)
 	if !ok {
 		cliOut = CLIOutConfig{}
+	}
+	if cliOut.spinner == nil {
+		panic("cannot call SpinnerTotal before WithSpinner")
 	}
 	cliOut.spinnerTotal = total
 	return context.WithValue(ctx, cliOutMgrContextKey, cliOut)
@@ -131,8 +142,11 @@ func (c CLIOutConfig) Log(msg string) {
 	if c.verbose && EchoLogsToStdErr() {
 		c.Verbose(msg)
 	}
-	// TODO(cdzombak): should buffer these until cancel/spinner is done iff spinner is active
-	fmt.Println(msg)
+	if c.spinner != nil && c.spinner.Active() && c.spinLogBuffer != nil {
+		c.spinLogBuffer.logs = append(c.spinLogBuffer.logs, msg)
+	} else {
+		fmt.Println(msg)
+	}
 }
 
 func (c CLIOutConfig) LogMulti(msgs []string) {
@@ -159,8 +173,8 @@ func (c CLIOutConfig) VerboseMulti(msgs []string) {
 
 func (c CLIOutConfig) SpinMessage(msg string) {
 	suffix := " " + msg
-	if len(suffix) > c.maxWidth {
-		suffix = suffix[:c.maxWidth-3] + "..."
+	if len(suffix) > c.maxSpinMsgWidth {
+		suffix = suffix[:c.maxSpinMsgWidth-3] + "..."
 	}
 	if c.spinner != nil {
 		c.spinner.Suffix = suffix
@@ -179,4 +193,8 @@ func (c CLIOutConfig) SpinProgress(n int64, verb string) {
 	} else {
 		c.spinner.Suffix = fmt.Sprintf("%s #%d ...", verb, n)
 	}
+}
+
+type spinningLogBuffer struct {
+	logs []string
 }
