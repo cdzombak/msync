@@ -1,19 +1,15 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
-	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
-
-	"github.com/briandowns/spinner"
-	"golang.org/x/term"
 )
 
 var version = "undefined (dev?)"
@@ -30,14 +26,15 @@ func usage() {
 }
 
 var (
-	fromFlag                     = flag.String("from", "", "Source directory with music library. (Required)")
-	toFlag                       = flag.String("to", "", "Destination directory for mirrored/re-encoded music library. (Required)")
-	maxBitrateKbpsFlag           = flag.Int("max-kbps", 192, "Maximum bitrate, in Kbps, for destination music library.")
 	dryRunFlag                   = flag.Bool("dry-run", false, "If true, do not modify anything on the filesystem.")
-	removeOtherFilesFromDestFlag = flag.Bool("remove-nonmusic-from-dest", false, "If true, remove any non-music files from the destination.")
-	makeSymlinksFlag             = flag.Bool("symlink", false, "If true, make symlinks from the destination to the source for music files below the maximum bitrate. (If not set, make a proper copy of the file.)")
-	printVersion                 = flag.Bool("version", false, "Print version and exit.")
 	fileCreateModeFlag           = flag.String("file-mode", "0644", "Octal value specifying mode for copied music files. Must begin with '0' or '0o'.")
+	fromFlag                     = flag.String("from", "", "Source directory with music library. (Required)")
+	makeSymlinksFlag             = flag.Bool("symlink", false, "If true, make symlinks from the destination to the source for music files below the maximum bitrate. (If not set, make a proper copy of the file.)")
+	maxBitrateKbpsFlag           = flag.Int("max-kbps", 192, "Maximum bitrate, in Kbps, for destination music library.")
+	printVersion                 = flag.Bool("version", false, "Print version and exit.")
+	removeOtherFilesFromDestFlag = flag.Bool("remove-nonmusic-from-dest", false, "If true, remove any non-music files from the destination.")
+	toFlag                       = flag.String("to", "", "Destination directory for mirrored/re-encoded music library. (Required)")
+	verboseFlag                  = flag.Bool("verbose", false, "Log detailed output to stderr. Suppresses progress indicators.")
 )
 
 func main() {
@@ -54,6 +51,9 @@ func main() {
 	}
 
 	if err := msyncMain(); err != nil {
+		if *verboseFlag && EchoLogsToStdErr() {
+			log.Println(err.Error())
+		}
 		fmt.Printf("Error: %s", err.Error())
 		os.Exit(1)
 	}
@@ -75,73 +75,46 @@ func msyncMain() error {
 		return err
 	}
 
-	maxWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil || maxWidth == 0 {
-		maxWidth = int(math.Round(80.0 * 0.7))
-	} else {
-		maxWidth = int(math.Round(float64(maxWidth) * 0.75))
+	ctx := WithCLIOut(context.Background())
+	if *verboseFlag {
+		ctx = WithVerboseCLIOut(ctx)
 	}
 
-	var spin *spinner.Spinner
-	spinFreq := 50 * time.Millisecond
-
-	fmt.Printf("Scanning source directory (%s) ...\n", sourceRootPath)
-	if useProgressIndicators() {
-		spin = spinner.New(spinner.CharSets[14], spinFreq)
-		spin.Color("reset")
-		spin.HideCursor = true
-		spin.Start()
-	}
+	CLIOut(ctx).Log(fmt.Sprintf("Scanning source directory (%s) ...", sourceRootPath))
+	spinCtx, spinStop := WithSpinner(ctx)
 	sourceTree, warnings, err := MakeMusicTree(sourceRootPath, func(currentPath string) {
-		if spin == nil {
+		if !CLIOut(spinCtx).HasSpinner() {
 			return
 		}
-		suffix := strings.TrimPrefix(currentPath, sourceRootPath)
-		suffix = strings.TrimPrefix(suffix, string(os.PathSeparator))
-		suffix = strings.SplitN(suffix, string(os.PathSeparator), 2)[0]
-		if len(suffix) > maxWidth {
-			suffix = suffix[:maxWidth-3] + "..."
-		}
-		spin.Suffix = " " + suffix
+		msg := strings.TrimPrefix(currentPath, sourceRootPath)
+		msg = strings.TrimPrefix(msg, string(os.PathSeparator))
+		msg = strings.SplitN(msg, string(os.PathSeparator), 2)[0]
+		CLIOut(spinCtx).SpinMessage(msg)
 	})
-	if spin != nil {
-		spin.Stop()
-		spin = nil
-	}
+	spinStop()
 	if err != nil {
 		return err
 	}
-	PrintWarnings(warnings)
-	fmt.Printf("Source tree (%s) size is %s\n", sourceRootPath, ByteCountBothStyles(sourceTree.CalculateSize()))
+	CLIOut(ctx).Warnings(warnings) // TODO(cdzombak): instead, just log & CLIOut buffers
+	CLIOut(ctx).Log(fmt.Sprintf("Source tree (%s) size is %s", sourceRootPath, ByteCountBothStyles(sourceTree.CalculateSize())))
 
-	fmt.Printf("Scanning destination directory (%s) ...\n", destRootPath)
-	if useProgressIndicators() {
-		spin = spinner.New(spinner.CharSets[14], spinFreq)
-		spin.Color("reset")
-		spin.HideCursor = true
-		spin.Start()
-	}
+	CLIOut(ctx).Log(fmt.Sprintf("Scanning destination directory (%s) ...", destRootPath))
+	spinCtx, spinStop = WithSpinner(ctx)
 	destTree, warnings, err := MakeMusicTree(destRootPath, func(currentPath string) {
-		if spin == nil {
+		if !CLIOut(spinCtx).HasSpinner() {
 			return
 		}
-		suffix := strings.TrimPrefix(currentPath, destRootPath)
-		suffix = strings.TrimPrefix(suffix, string(os.PathSeparator))
-		suffix = strings.SplitN(suffix, string(os.PathSeparator), 2)[0]
-		if len(suffix) > maxWidth {
-			suffix = suffix[:maxWidth] + "..."
-		}
-		spin.Suffix = " " + suffix
+		msg := strings.TrimPrefix(currentPath, destRootPath)
+		msg = strings.TrimPrefix(msg, string(os.PathSeparator))
+		msg = strings.SplitN(msg, string(os.PathSeparator), 2)[0]
+		CLIOut(spinCtx).SpinMessage(msg)
 	})
-	if spin != nil {
-		spin.Stop()
-		spin = nil
-	}
+	spinStop()
 	if err != nil {
 		return err
 	}
-	PrintWarnings(warnings)
-	fmt.Printf("Destination tree (%s) size is %s\n", destRootPath, ByteCountBothStyles(destTree.CalculateSize()))
+	CLIOut(ctx).Warnings(warnings) // TODO(cdzombak): instead, just log & CLIOut buffers
+	CLIOut(ctx).Log(fmt.Sprintf("Destination tree (%s) size is %s", destRootPath, ByteCountBothStyles(destTree.CalculateSize())))
 
 	// ffmpeg's aac encoder produces files a little bit above the target bitrate. so, when transcoding,
 	// we tell ffmpeg to target (max bitrate - 1Kbps), and we allow files in the destination dir to be
@@ -155,107 +128,80 @@ func msyncMain() error {
 	// this makes the program logic easier to follow, and a separate count pass makes reporting progress easier.
 
 	// remove anything from dest that isn't in source:
-	fmt.Println("Removing files/directories from the destination directory tree that are missing in source directory tree ...")
-	destI := 0
+	CLIOut(ctx).Log("Removing files/directories from the destination directory tree that are missing in source directory tree ...")
+	destI := int64(0)
 	destCount := destTree.CountNodes()
-	if useProgressIndicators() {
-		spin = spinner.New(spinner.CharSets[14], spinFreq)
-		spin.Color("reset")
-		spin.HideCursor = true
-		spin.Start()
-	}
+	spinCtx, spinStop = WithSpinner(ctx)
+	spinCtx = SpinnerTotal(ctx, destCount)
 	removeCount, err := destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
 		destI++
-		if spin != nil {
-			spin.Suffix = fmt.Sprintf(" checking %d / %d (%.f%%)", destI, destCount, math.Round(100*float64(destI)/float64(destCount)))
-		}
+		CLIOut(spinCtx).SpinProgress(destI, "checking")
 		return !sourceTree.HasNodeAtTreePath(n.TreePath)
 	}, "item is gone from source directory")
-	if spin != nil {
-		spin.Stop()
-		spin = nil
-	}
+	spinStop()
 	if err != nil {
 		return err
 	}
 	if removeCount > 0 {
 		if *dryRunFlag {
-			fmt.Printf("[dry run] Would remove %d files/directories from destination (%s) because the equivalent item is gone from source directory (%s)\n", removeCount, destTree.FilesystemPath, sourceTree.FilesystemPath)
+			CLIOut(ctx).Log(fmt.Sprintf("[dry run] Would remove %d files/directories from destination (%s) because the equivalent item is gone from source directory (%s)", removeCount, destTree.FilesystemPath, sourceTree.FilesystemPath))
 		} else {
-			fmt.Printf("Removed %d files/directories from destination (%s) because the equivalent item is gone from source directory (%s)\n", removeCount, destTree.FilesystemPath, sourceTree.FilesystemPath)
+			CLIOut(ctx).Log(fmt.Sprintf("Removed %d files/directories from destination (%s) because the equivalent item is gone from source directory (%s)", removeCount, destTree.FilesystemPath, sourceTree.FilesystemPath))
 		}
 	} else {
-		fmt.Println("0 files/directories affected.")
+		CLIOut(ctx).Log("0 files/directories affected.")
 	}
 
 	if *removeOtherFilesFromDestFlag {
 		// remove anything from dest that isn't a music file:
-		fmt.Println("Removing non-music files from the destination directory tree ...")
+		CLIOut(ctx).Log("Removing non-music files from the destination directory tree ...")
 		destI = 0
 		destCount = destTree.CountNodes()
-		if useProgressIndicators() {
-			spin = spinner.New(spinner.CharSets[14], spinFreq)
-			spin.Color("reset")
-			spin.HideCursor = true
-			spin.Start()
-		}
+		spinCtx, spinStop = WithSpinner(ctx)
+		spinCtx = SpinnerTotal(ctx, destCount)
 		removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
 			destI++
-			if spin != nil {
-				spin.Suffix = fmt.Sprintf(" checking %d / %d (%.f%%)", destI, destCount, math.Round(100*float64(destI)/float64(destCount)))
-			}
+			CLIOut(spinCtx).SpinProgress(destI, "checking")
 			return !(n.IsDirectory || n.IsMusicFile)
 		}, "file is not a music file")
-		if spin != nil {
-			spin.Stop()
-			spin = nil
-		}
+		spinStop()
 		if err != nil {
 			return err
 		}
 		if removeCount > 0 {
 			if *dryRunFlag {
-				fmt.Printf("[dry run] Would remove %d non-music files from destination (%s)\n", removeCount, destTree.FilesystemPath)
+				CLIOut(ctx).Log(fmt.Sprintf("[dry run] Would remove %d non-music files from destination (%s)", removeCount, destTree.FilesystemPath))
 			} else {
-				fmt.Printf("Removed %d non-music files from destination (%s)\n", removeCount, destTree.FilesystemPath)
+				CLIOut(ctx).Log(fmt.Sprintf("Removed %d non-music files from destination (%s)", removeCount, destTree.FilesystemPath))
 			}
 		} else {
-			fmt.Println("0 files affected.")
+			CLIOut(ctx).Log("0 files affected.")
 		}
 	}
 
 	// remove anything from dest that has too-high bitrate:
-	fmt.Printf("Removing music files that exceed %d Kbps from the destination directory tree ...\n", *maxBitrateKbpsFlag)
+	CLIOut(ctx).Log(fmt.Sprintf("Removing music files that exceed %d Kbps from the destination directory tree ...", *maxBitrateKbpsFlag))
 	destI = 0
 	destCount = destTree.CountNodes()
-	if useProgressIndicators() {
-		spin = spinner.New(spinner.CharSets[14], spinFreq)
-		spin.Color("reset")
-		spin.HideCursor = true
-		spin.Start()
-	}
+	spinCtx, spinStop = WithSpinner(ctx)
+	spinCtx = SpinnerTotal(ctx, destCount)
 	removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
 		destI++
-		if spin != nil {
-			spin.Suffix = fmt.Sprintf(" checking %d / %d (%.f%%)", destI, destCount, math.Round(100*float64(destI)/float64(destCount)))
-		}
+		CLIOut(spinCtx).SpinProgress(destI, "checking")
 		return n.IsMusicFile && n.FileBitrate > maxBitrateForDestFiles
 	}, fmt.Sprintf("its bitrate exceeds %d Kbps", *maxBitrateKbpsFlag))
-	if spin != nil {
-		spin.Stop()
-		spin = nil
-	}
+	spinStop()
 	if err != nil {
 		return err
 	}
 	if removeCount > 0 {
 		if *dryRunFlag {
-			fmt.Printf("[dry run] Would remove %d files from destination (%s) because their bitrate exceeded %d Kbps\n", removeCount, destTree.FilesystemPath, *maxBitrateKbpsFlag)
+			CLIOut(ctx).Log(fmt.Sprintf("[dry run] Would remove %d files from destination (%s) because their bitrate exceeded %d Kbps", removeCount, destTree.FilesystemPath, *maxBitrateKbpsFlag))
 		} else {
-			fmt.Printf("Removed %d files from destination (%s) because their bitrate exceeded %d Kbps\n", removeCount, destTree.FilesystemPath, *maxBitrateKbpsFlag)
+			CLIOut(ctx).Log(fmt.Sprintf("Removed %d files from destination (%s) because their bitrate exceeded %d Kbps", removeCount, destTree.FilesystemPath, *maxBitrateKbpsFlag))
 		}
 	} else {
-		fmt.Println("0 files affected.")
+		CLIOut(ctx).Log("0 files affected.")
 	}
 
 	ffmpegBitrateStr := strconv.Itoa(*maxBitrateKbpsFlag) + "k"
@@ -264,23 +210,17 @@ func msyncMain() error {
 
 	// either copy/link or re-encode all music files & directories from source that aren't in dest:
 	if *makeSymlinksFlag {
-		fmt.Printf("Syncing music files from source to destination. Files over %d Kbps will be transcoded; others will be symlinked.\n", *maxBitrateKbpsFlag)
+		CLIOut(ctx).Log(fmt.Sprintf("Syncing music files from source to destination. Files over %d Kbps will be transcoded; others will be symlinked.", *maxBitrateKbpsFlag))
 	} else {
-		fmt.Printf("Syncing music files from source to destination. Files over %d Kbps will be transcoded; others will be copied.\n", *maxBitrateKbpsFlag)
+		CLIOut(ctx).Log(fmt.Sprintf("Syncing music files from source to destination. Files over %d Kbps will be transcoded; others will be copied.", *maxBitrateKbpsFlag))
 	}
-	sourceI := 0
+	sourceI := int64(0)
 	sourceCount := sourceTree.CountNodes()
-	if useProgressIndicators() {
-		spin = spinner.New(spinner.CharSets[14], spinFreq)
-		spin.Color("reset")
-		spin.HideCursor = true
-		spin.Start()
-	}
+	spinCtx, spinStop = WithSpinner(ctx)
+	spinCtx = SpinnerTotal(ctx, sourceCount)
 	err = sourceTree.Walk(func(n *MusicTreeNode) error {
 		sourceI++
-		if spin != nil {
-			spin.Suffix = fmt.Sprintf(" syncing %d / %d (%.f%%)", sourceI, sourceCount, math.Round(100*float64(sourceI)/float64(sourceCount)))
-		}
+		CLIOut(spinCtx).SpinProgress(sourceI, "syncing")
 		if n.IsFile && !n.IsMusicFile {
 			return nil
 		}
@@ -292,14 +232,12 @@ func msyncMain() error {
 			if n.IsFile && n.IsMusicFile && n.FileBitrate > maxBitrateForDestFiles {
 				needsTranscode = true
 				destPath = RemoveExt(destPath) + transcodedFileExt
-				if *verboseFlag {
-					log.Printf("%s is missing from destination; will be transcoded to %s", n.FilesystemPath, destPath)
-				}
-			} else if *verboseFlag {
+				CLIOut(spinCtx).Verbose(fmt.Sprintf("%s is missing from destination; will be transcoded to %s", n.FilesystemPath, destPath))
+			} else {
 				if *makeSymlinksFlag {
-					log.Printf("%s is missing from destination; will be symlinked to %s", n.FilesystemPath, destPath)
+					CLIOut(spinCtx).Verbose(fmt.Sprintf("%s is missing from destination; will be symlinked to %s", n.FilesystemPath, destPath))
 				} else {
-					log.Printf("%s is missing from destination; will be copied to %s", n.FilesystemPath, destPath)
+					CLIOut(spinCtx).Verbose(fmt.Sprintf("%s is missing from destination; will be copied to %s", n.FilesystemPath, destPath))
 				}
 			}
 
@@ -309,15 +247,13 @@ func msyncMain() error {
 			}
 			if _, ok := didMkdir[destDirPath]; !ok { // cut down on logs in verbose mode
 				if !*dryRunFlag {
-					if *verboseFlag {
-						log.Printf("mkdir -p '%s'", destDirPath)
-					}
+					CLIOut(spinCtx).Verbose(fmt.Sprintf("mkdir -p '%s'", destDirPath))
 					err := os.MkdirAll(destDirPath, destTree.Mode)
 					if err != nil {
 						return err
 					}
-				} else if *verboseFlag {
-					log.Printf("[dry run] Would mkdir -p '%s'", destDirPath)
+				} else {
+					CLIOut(spinCtx).Verbose(fmt.Sprintf("[dry run] Would mkdir -p '%s'", destDirPath))
 				}
 				didMkdir[destDirPath] = true
 			}
@@ -358,51 +294,43 @@ func msyncMain() error {
 			if needsTranscode {
 				newFileBitrate = targetTranscodeBitrate
 				if !*dryRunFlag {
-					if *verboseFlag {
-						log.Printf("Transcoding '%s' to '%s' at %s ...", n.FilesystemPath, destPath, ffmpegBitrateStr)
-					}
+					CLIOut(spinCtx).Verbose(fmt.Sprintf("Transcoding '%s' to '%s' at %s ...", n.FilesystemPath, destPath, ffmpegBitrateStr))
 					// try without discarding album art; and if that fails try once more discarding video entirely:
 					// TODO(cdzombak): this is insanely ugly. refactor: https://github.com/cdzombak/msync/issues/5
 					out, err := Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", n.FilesystemPath, "-c:v", "copy", "-c:a", "aac", "-b:a", ffmpegBitrateStr, destPath})
 					if err != nil {
 						_ = os.Remove(destPath)
-						if *verboseFlag {
-							log.Printf("Transcoding of '%s' failed. Trying again without video. Error was: %s %s", n.FilesystemPath, out, err)
-						}
+						CLIOut(spinCtx).Verbose(fmt.Sprintf("Transcoding of '%s' failed. Trying again without video. Error was: %s %s", n.FilesystemPath, out, err))
 						out, err := Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", n.FilesystemPath, "-vn", "-c:a", "aac", "-b:a", ffmpegBitrateStr, destPath})
 						if err != nil {
 							_ = os.Remove(destPath)
 							return fmt.Errorf("transcode '%s' failed: %w: %s", n.FilesystemPath, err, out)
 						}
 					}
-				} else if *verboseFlag {
-					log.Printf("[dry run] Would transcode '%s' to '%s' at %s", n.FilesystemPath, destPath, ffmpegBitrateStr)
+				} else {
+					CLIOut(spinCtx).Verbose(fmt.Sprintf("[dry run] Would transcode '%s' to '%s' at %s", n.FilesystemPath, destPath, ffmpegBitrateStr))
 				}
 			} else {
 				newFileBitrate = n.FileBitrate
 				if *makeSymlinksFlag {
 					if !*dryRunFlag {
-						if *verboseFlag {
-							log.Printf("Symlinking '%s' to '%s'", destPath, n.FilesystemPath)
-						}
+						CLIOut(spinCtx).Verbose(fmt.Sprintf("Symlinking '%s' to '%s'", destPath, n.FilesystemPath))
 						err := os.Symlink(n.FilesystemPath, destPath)
 						if err != nil {
 							return fmt.Errorf("failed to symlink '%s' to '%s': %w", destPath, n.FilesystemPath, err)
 						}
-					} else if *verboseFlag {
-						log.Printf("[dry run] Would symlink '%s' to '%s'", destPath, n.FilesystemPath)
+					} else {
+						CLIOut(spinCtx).Verbose(fmt.Sprintf("[dry run] Would symlink '%s' to '%s'", destPath, n.FilesystemPath))
 					}
 				} else {
 					if !*dryRunFlag {
-						if *verboseFlag {
-							log.Printf("Copying '%s' to '%s'", n.FilesystemPath, destPath)
-						}
+						CLIOut(spinCtx).Verbose(fmt.Sprintf("Copying '%s' to '%s'", n.FilesystemPath, destPath))
 						err := CopyFile(n.FilesystemPath, destPath, fileCreateMode)
 						if err != nil {
 							return fmt.Errorf("failed to copy '%s' to '%s': %w", n.FilesystemPath, destPath, err)
 						}
-					} else if *verboseFlag {
-						log.Printf("[dry run] Would copy '%s' to '%s'", n.FilesystemPath, destPath)
+					} else {
+						CLIOut(spinCtx).Verbose(fmt.Sprintf("[dry run] Would copy '%s' to '%s'", n.FilesystemPath, destPath))
 					}
 				}
 			}
@@ -441,54 +369,42 @@ func msyncMain() error {
 		}
 		return nil
 	})
-	if spin != nil {
-		spin.Stop()
-		spin = nil
-	}
+	spinStop()
 	if err != nil {
 		return err
 	}
 	if *dryRunFlag {
-		fmt.Printf("[dry run] Would synchronize %d music files to destination.\n", filesSyncedCount)
+		CLIOut(ctx).Log(fmt.Sprintf("[dry run] Would synchronize %d music files to destination.", filesSyncedCount))
 	} else {
-		fmt.Printf("Synchronized %d music files to destination.\n", filesSyncedCount)
+		CLIOut(ctx).Log(fmt.Sprintf("Synchronized %d music files to destination.", filesSyncedCount))
 	}
 
-	fmt.Println("Removing empty directories from the destination directory tree ...")
+	CLIOut(ctx).Log("Removing empty directories from the destination directory tree ...")
 	destI = 0
 	destCount = destTree.CountNodes()
-	if useProgressIndicators() {
-		spin = spinner.New(spinner.CharSets[14], spinFreq)
-		spin.Color("reset")
-		spin.HideCursor = true
-		spin.Start()
-	}
+	spinCtx, spinStop = WithSpinner(ctx)
+	spinCtx = SpinnerTotal(ctx, destCount)
 	removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
 		destI++
-		if spin != nil {
-			spin.Suffix = fmt.Sprintf(" checking %d / %d (%.f%%)", destI, destCount, math.Round(100*float64(destI)/float64(destCount)))
-		}
+		CLIOut(spinCtx).SpinProgress(destI, "checking")
 		return n.IsDirectory && len(n.Children) == 0
 	}, "directory is empty")
-	if spin != nil {
-		spin.Stop()
-		spin = nil
-	}
+	spinStop()
 	if err != nil {
 		return err
 	}
 	if removeCount > 0 {
 		if *dryRunFlag {
-			fmt.Printf("[dry run] Would remove %d empty directories from destination (%s)\n", removeCount, destTree.FilesystemPath)
+			CLIOut(ctx).Log(fmt.Sprintf("[dry run] Would remove %d empty directories from destination (%s)", removeCount, destTree.FilesystemPath))
 		} else {
-			fmt.Printf("Removed %d empty directories from destination (%s)\n", removeCount, destTree.FilesystemPath)
+			CLIOut(ctx).Log(fmt.Sprintf("Removed %d empty directories from destination (%s)", removeCount, destTree.FilesystemPath))
 		}
 	} else {
-		fmt.Println("0 directories affected.")
+		CLIOut(ctx).Log("0 directories affected.")
 	}
 
-	fmt.Printf("Destination library size is now %s.\n", ByteCountBothStyles(destTree.CalculateSize()))
-	fmt.Println("Completed!")
+	CLIOut(ctx).Log(fmt.Sprintf("Destination library size is now %s.", ByteCountBothStyles(destTree.CalculateSize())))
+	CLIOut(ctx).Log("Completed!")
 
 	return nil
 }
