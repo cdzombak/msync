@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"msync/filesize"
 )
 
 var version = "undefined (dev?)"
@@ -95,7 +97,7 @@ func msyncMain() error {
 	if err != nil {
 		return err
 	}
-	CLIOut(ctx).Log(fmt.Sprintf("Source tree (%s) size is %s", sourceRootPath, ByteCountBothStyles(sourceTree.CalculateSize())))
+	CLIOut(ctx).Log(fmt.Sprintf("Source tree (%s) size is %s", sourceRootPath, filesize.ByteCountBothStyles(sourceTree.CalculateSize())))
 
 	CLIOut(ctx).Log(fmt.Sprintf("Scanning destination directory (%s) ...", destRootPath))
 	spinCtx, spinMessage, spinStop = WithCLISpinner(ctx, "...")
@@ -112,7 +114,7 @@ func msyncMain() error {
 	if err != nil {
 		return err
 	}
-	CLIOut(ctx).Log(fmt.Sprintf("Destination tree (%s) size is %s", destRootPath, ByteCountBothStyles(destTree.CalculateSize())))
+	CLIOut(ctx).Log(fmt.Sprintf("Destination tree (%s) size is %s", destRootPath, filesize.ByteCountBothStyles(destTree.CalculateSize())))
 
 	// ffmpeg's aac encoder produces files a little bit above the target bitrate. so, when transcoding,
 	// we tell ffmpeg to target (max bitrate - 1Kbps), and we allow files in the destination dir to be
@@ -396,7 +398,7 @@ func msyncMain() error {
 	if *makeSymlinksFlag {
 		symlinkPart = " (after resolving symlinks created during sync)"
 	}
-	CLIOut(ctx).Log(fmt.Sprintf("Destination library size is now %s%s.", ByteCountBothStyles(destTree.CalculateSize()), symlinkPart))
+	CLIOut(ctx).Log(fmt.Sprintf("Destination library size is now %s%s.", filesize.ByteCountBothStyles(destTree.CalculateSize()), symlinkPart))
 	CLIOut(ctx).Log("Completed!")
 
 	return nil
