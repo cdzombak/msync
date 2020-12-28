@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"msync/dzutil"
+
 	"github.com/Bios-Marcel/wastebasket"
 )
 
@@ -196,7 +198,7 @@ func isMusicFile(path string) bool {
 func normalizeFileNameForComparing(name string) string {
 	name = strings.ToLower(name)
 	if isMusicFile(name) {
-		name = RemoveExt(name)
+		name = dzutil.RemoveExt(name)
 	}
 	return name
 }

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+
+	"msync/dzutil"
 )
 
 var bitrateRegex = regexp.MustCompile("bit rate: (\\d+) bits per second")
@@ -12,7 +14,7 @@ var bitrateRegex = regexp.MustCompile("bit rate: (\\d+) bits per second")
 // An error is returned if afinfo cannot be found, returns a nonzero exit code, or
 // produces no or un-parsable output.
 func fileBitrate(path string) (int, error) {
-	out, err := Exec("afinfo", []string{path})
+	out, err := dzutil.Exec("afinfo", []string{path})
 	if err != nil {
 		return 0, fmt.Errorf("could not run afinfo to get bitrate: %w", err)
 	}

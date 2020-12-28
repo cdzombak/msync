@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"msync/dzutil"
 	"msync/filesize"
 )
 
@@ -223,7 +224,7 @@ func msyncMain() error {
 			needsTranscode := false
 			if n.IsFile && n.IsMusicFile && n.FileBitrate > maxBitrateForDestFiles {
 				needsTranscode = true
-				destPath = RemoveExt(destPath) + transcodeFileExt
+				destPath = dzutil.RemoveExt(destPath) + transcodeFileExt
 				CLIOut(spinCtx).Verbose(fmt.Sprintf("%s is missing from destination; will be transcoded to %s", n.FilesystemPath, destPath))
 			} else {
 				if *makeSymlinksFlag {
@@ -289,11 +290,11 @@ func msyncMain() error {
 					CLIOut(spinCtx).Verbose(fmt.Sprintf("Transcoding '%s' to '%s' at %s ...", n.FilesystemPath, destPath, ffmpegBitrateStr))
 					// try without discarding album art; and if that fails try once more discarding video entirely:
 					// TODO(cdzombak): this is insanely ugly. refactor: https://github.com/cdzombak/msync/issues/5
-					out, err := Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", n.FilesystemPath, "-c:v", "copy", "-c:a", "aac", "-b:a", ffmpegBitrateStr, destPath})
+					out, err := dzutil.Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", n.FilesystemPath, "-c:v", "copy", "-c:a", "aac", "-b:a", ffmpegBitrateStr, destPath})
 					if err != nil {
 						_ = os.Remove(destPath)
 						CLIOut(spinCtx).Verbose(fmt.Sprintf("Transcoding of '%s' failed. Trying again without video. Error was: %s %s", n.FilesystemPath, out, err))
-						out, err := Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", n.FilesystemPath, "-vn", "-c:a", "aac", "-b:a", ffmpegBitrateStr, destPath})
+						out, err := dzutil.Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", n.FilesystemPath, "-vn", "-c:a", "aac", "-b:a", ffmpegBitrateStr, destPath})
 						if err != nil {
 							_ = os.Remove(destPath)
 							return fmt.Errorf("transcode '%s' failed: %w: %s", n.FilesystemPath, err, out)
@@ -317,7 +318,7 @@ func msyncMain() error {
 				} else {
 					if !*dryRunFlag {
 						CLIOut(spinCtx).Verbose(fmt.Sprintf("Copying '%s' to '%s'", n.FilesystemPath, destPath))
-						err := CopyFile(n.FilesystemPath, destPath, fileCreateMode)
+						err := dzutil.CopyFile(n.FilesystemPath, destPath, fileCreateMode)
 						if err != nil {
 							return fmt.Errorf("failed to copy '%s' to '%s': %w", n.FilesystemPath, destPath, err)
 						}
