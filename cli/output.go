@@ -28,6 +28,14 @@ func EchoLogsToStdErr() bool {
 	return (IsStdoutTerminal() != IsStderrTerminal()) || (!IsStdoutTerminal() && !IsStderrTerminal())
 }
 
+func ShowTerminalCursor() {
+	if !IsStdoutTerminal() {
+		return
+	}
+	// from Go sample at https://rosettacode.org/wiki/Terminal_control/Hiding_the_cursor#Escape_code
+	fmt.Print("\033[?25h")
+}
+
 type contextKey string
 
 func (c contextKey) String() string {
@@ -102,10 +110,12 @@ func initSpinner(ctx context.Context) (context.Context, context.CancelFunc) {
 
 	ctx, cancel := context.WithCancel(ctx)
 	cancel2 := func() {
-		cliOut.spinner.HideCursor = false
+		// TODO(cdzombak): do this if context is canceled from above, too
 		cliOut.spinner.Stop()
+		ShowTerminalCursor()
 		if cliOut.spinLogBuffer != nil && len(cliOut.spinLogBuffer.logs) > 0 {
 			cliOut.LogMulti(cliOut.spinLogBuffer.logs)
+			cliOut.spinLogBuffer.logs = nil
 		}
 		cancel()
 	}
