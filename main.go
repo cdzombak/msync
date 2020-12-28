@@ -34,7 +34,7 @@ var (
 	printVersion                 = flag.Bool("version", false, "Print version and exit.")
 	removeOtherFilesFromDestFlag = flag.Bool("remove-nonmusic-from-dest", false, "If true, remove any non-music files from the destination.")
 	toFlag                       = flag.String("to", "", "Destination directory for mirrored/re-encoded music library. (Required)")
-	verboseFlag                  = flag.Bool("verbose", false, "Log detailed output to stderr. Suppresses progress indicators.")
+	verboseFlag                  = flag.Bool("isVerbose", false, "Log detailed output to stderr. Suppresses progress indicators.")
 )
 
 func main() {
@@ -81,7 +81,7 @@ func msyncMain() error {
 	}
 
 	CLIOut(ctx).Log(fmt.Sprintf("Scanning source directory (%s) ...", sourceRootPath))
-	spinCtx, spinStop := WithSpinner(ctx)
+	spinCtx, spinMessage, spinStop := WithCLISpinner(ctx, "...")
 	sourceTree, err := MakeMusicTree(spinCtx, sourceRootPath, func(currentPath string) {
 		if !CLIOut(spinCtx).HasSpinner() {
 			return
@@ -89,7 +89,7 @@ func msyncMain() error {
 		msg := strings.TrimPrefix(currentPath, sourceRootPath)
 		msg = strings.TrimPrefix(msg, string(os.PathSeparator))
 		msg = strings.SplitN(msg, string(os.PathSeparator), 2)[0]
-		CLIOut(spinCtx).SpinMessage(msg)
+		spinMessage(msg)
 	})
 	spinStop()
 	if err != nil {
@@ -98,7 +98,7 @@ func msyncMain() error {
 	CLIOut(ctx).Log(fmt.Sprintf("Source tree (%s) size is %s", sourceRootPath, ByteCountBothStyles(sourceTree.CalculateSize())))
 
 	CLIOut(ctx).Log(fmt.Sprintf("Scanning destination directory (%s) ...", destRootPath))
-	spinCtx, spinStop = WithSpinner(ctx)
+	spinCtx, spinMessage, spinStop = WithCLISpinner(ctx, "...")
 	destTree, err := MakeMusicTree(spinCtx, destRootPath, func(currentPath string) {
 		if !CLIOut(spinCtx).HasSpinner() {
 			return
@@ -106,7 +106,7 @@ func msyncMain() error {
 		msg := strings.TrimPrefix(currentPath, destRootPath)
 		msg = strings.TrimPrefix(msg, string(os.PathSeparator))
 		msg = strings.SplitN(msg, string(os.PathSeparator), 2)[0]
-		CLIOut(spinCtx).SpinMessage(msg)
+		spinMessage(msg)
 	})
 	spinStop()
 	if err != nil {
@@ -120,7 +120,7 @@ func msyncMain() error {
 	// over across multiple runs with the same configuration.
 	targetTranscodeBitrate := *maxBitrateKbpsFlag*1000 - 1000 // target bitrate for encoding
 	maxBitrateForDestFiles := targetTranscodeBitrate + 3000
-	const transcodedFileExt = ".m4a"
+	const transcodeFileExt = ".m4a"
 
 	// we could do this more efficiently by eg. combining remove passes, but I don't care.
 	// this makes the program logic easier to follow, and a separate count pass makes reporting progress easier.
@@ -128,12 +128,10 @@ func msyncMain() error {
 	// remove anything from dest that isn't in source:
 	CLIOut(ctx).Log("Removing files/directories from the destination directory tree that are missing in source directory tree ...")
 	destI := int64(0)
-	destCount := destTree.CountNodes()
-	spinCtx, spinStop = WithSpinner(ctx)
-	spinCtx = SpinnerTotal(spinCtx, destCount)
+	spinCtx, spinProgress, spinStop := WithCLIProgress(ctx, "checking", destTree.CountNodes())
 	removeCount, err := destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
 		destI++
-		CLIOut(spinCtx).SpinProgress(destI, "checking")
+		spinProgress(destI)
 		return !sourceTree.HasNodeAtTreePath(n.TreePath)
 	}, "item is gone from source directory")
 	spinStop()
@@ -154,12 +152,10 @@ func msyncMain() error {
 		// remove anything from dest that isn't a music file:
 		CLIOut(ctx).Log("Removing non-music files from the destination directory tree ...")
 		destI = 0
-		destCount = destTree.CountNodes()
-		spinCtx, spinStop = WithSpinner(ctx)
-		spinCtx = SpinnerTotal(spinCtx, destCount)
+		spinCtx, spinProgress, spinStop = WithCLIProgress(ctx, "checking", destTree.CountNodes())
 		removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
 			destI++
-			CLIOut(spinCtx).SpinProgress(destI, "checking")
+			spinProgress(destI)
 			return !(n.IsDirectory || n.IsMusicFile)
 		}, "file is not a music file")
 		spinStop()
@@ -180,12 +176,10 @@ func msyncMain() error {
 	// remove anything from dest that has too-high bitrate:
 	CLIOut(ctx).Log(fmt.Sprintf("Removing music files that exceed %d Kbps from the destination directory tree ...", *maxBitrateKbpsFlag))
 	destI = 0
-	destCount = destTree.CountNodes()
-	spinCtx, spinStop = WithSpinner(ctx)
-	spinCtx = SpinnerTotal(spinCtx, destCount)
+	spinCtx, spinProgress, spinStop = WithCLIProgress(ctx, "checking", destTree.CountNodes())
 	removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
 		destI++
-		CLIOut(spinCtx).SpinProgress(destI, "checking")
+		spinProgress(destI)
 		return n.IsMusicFile && n.FileBitrate > maxBitrateForDestFiles
 	}, fmt.Sprintf("its bitrate exceeds %d Kbps", *maxBitrateKbpsFlag))
 	spinStop()
@@ -213,12 +207,10 @@ func msyncMain() error {
 		CLIOut(ctx).Log(fmt.Sprintf("Syncing music files from source to destination. Files over %d Kbps will be transcoded; others will be copied.", *maxBitrateKbpsFlag))
 	}
 	sourceI := int64(0)
-	sourceCount := sourceTree.CountNodes()
-	spinCtx, spinStop = WithSpinner(ctx)
-	spinCtx = SpinnerTotal(spinCtx, sourceCount)
+	spinCtx, spinProgress, spinStop = WithCLIProgress(ctx, "syncing", sourceTree.CountNodes())
 	err = sourceTree.Walk(func(n *MusicTreeNode) error {
 		sourceI++
-		CLIOut(spinCtx).SpinProgress(sourceI, "syncing")
+		spinProgress(sourceI)
 		if n.IsFile && !n.IsMusicFile {
 			return nil
 		}
@@ -229,7 +221,7 @@ func msyncMain() error {
 			needsTranscode := false
 			if n.IsFile && n.IsMusicFile && n.FileBitrate > maxBitrateForDestFiles {
 				needsTranscode = true
-				destPath = RemoveExt(destPath) + transcodedFileExt
+				destPath = RemoveExt(destPath) + transcodeFileExt
 				CLIOut(spinCtx).Verbose(fmt.Sprintf("%s is missing from destination; will be transcoded to %s", n.FilesystemPath, destPath))
 			} else {
 				if *makeSymlinksFlag {
@@ -243,7 +235,7 @@ func msyncMain() error {
 			if n.IsFile {
 				destDirPath = filepath.Dir(destDirPath)
 			}
-			if _, ok := didMkdir[destDirPath]; !ok { // cut down on logs in verbose mode
+			if _, ok := didMkdir[destDirPath]; !ok { // cut down on logs in isVerbose mode
 				if !*dryRunFlag {
 					CLIOut(spinCtx).Verbose(fmt.Sprintf("mkdir -p '%s'", destDirPath))
 					err := os.MkdirAll(destDirPath, destTree.Mode)
@@ -379,12 +371,10 @@ func msyncMain() error {
 
 	CLIOut(ctx).Log("Removing empty directories from the destination directory tree ...")
 	destI = 0
-	destCount = destTree.CountNodes()
-	spinCtx, spinStop = WithSpinner(ctx)
-	spinCtx = SpinnerTotal(spinCtx, destCount)
+	spinCtx, spinProgress, spinStop = WithCLIProgress(ctx, "checking", destTree.CountNodes())
 	removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
 		destI++
-		CLIOut(spinCtx).SpinProgress(destI, "checking")
+		spinProgress(destI)
 		return n.IsDirectory && len(n.Children) == 0
 	}, "directory is empty")
 	spinStop()
@@ -402,7 +392,11 @@ func msyncMain() error {
 	}
 
 	CLIOut(ctx).Log("")
-	CLIOut(ctx).Log(fmt.Sprintf("Destination library size is now %s.", ByteCountBothStyles(destTree.CalculateSize())))
+	symlinkPart := ""
+	if *makeSymlinksFlag {
+		symlinkPart = " (after resolving symlinks created during sync)"
+	}
+	CLIOut(ctx).Log(fmt.Sprintf("Destination library size is now %s%s.", ByteCountBothStyles(destTree.CalculateSize()), symlinkPart))
 	CLIOut(ctx).Log("Completed!")
 
 	return nil

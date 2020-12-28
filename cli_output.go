@@ -22,6 +22,8 @@ func IsStderrTerminal() bool {
 	return term.IsTerminal(int(os.Stderr.Fd()))
 }
 
+// EchoLogsToStdErr returns true iff messages sent to standard out should
+// also be echoed to standard error.
 func EchoLogsToStdErr() bool {
 	return (IsStdoutTerminal() != IsStderrTerminal()) || (!IsStdoutTerminal() && !IsStderrTerminal())
 }
@@ -33,9 +35,8 @@ func (c contextKey) String() string {
 }
 
 type CLIOutConfig struct {
-	verbose         bool
+	isVerbose       bool
 	spinner         *spinner.Spinner
-	spinnerTotal    int64
 	maxSpinMsgWidth int
 	spinLogBuffer   *spinningLogBuffer
 }
@@ -43,7 +44,7 @@ type CLIOutConfig struct {
 var cliOutMgrContextKey = contextKey("cliOutMgr")
 
 func (c *CLIOutConfig) useProgressIndicators() bool {
-	return !c.verbose && IsStdoutTerminal()
+	return !c.isVerbose && IsStdoutTerminal()
 }
 
 func CLIOut(ctx context.Context) CLIOutConfig {
@@ -67,14 +68,21 @@ func WithVerboseCLIOut(ctx context.Context) context.Context {
 	if !ok {
 		cliOut = CLIOutConfig{}
 	}
-	cliOut.verbose = true
+	cliOut.isVerbose = true
 	return context.WithValue(ctx, cliOutMgrContextKey, cliOut)
 }
 
-func WithSpinner(ctx context.Context) (context.Context, context.CancelFunc) {
+func initCLISpinner(ctx context.Context) (context.Context, context.CancelFunc) {
 	cliOut, ok := ctx.Value(cliOutMgrContextKey).(CLIOutConfig)
 	if !ok {
 		cliOut = CLIOutConfig{}
+	}
+
+	if cliOut.spinner == nil {
+		cliOut.spinner = spinner.New(spinner.CharSets[14], 50*time.Millisecond)
+	}
+	if cliOut.spinLogBuffer == nil {
+		cliOut.spinLogBuffer = &spinningLogBuffer{}
 	}
 
 	// TODO(cdzombak): update periodically (200ms) if spinner is active, but be sure not to leak goroutines doing that forever eg. take cancellation into account
@@ -85,13 +93,6 @@ func WithSpinner(ctx context.Context) (context.Context, context.CancelFunc) {
 		maxWidth = int(math.Round(float64(maxWidth) * 0.75))
 	}
 	cliOut.maxSpinMsgWidth = maxWidth
-
-	if cliOut.spinner == nil {
-		cliOut.spinner = spinner.New(spinner.CharSets[14], 50*time.Millisecond)
-	}
-	if cliOut.spinLogBuffer == nil {
-		cliOut.spinLogBuffer = &spinningLogBuffer{}
-	}
 
 	_ = cliOut.spinner.Color("reset")
 	cliOut.spinner.HideCursor = true
@@ -108,20 +109,60 @@ func WithSpinner(ctx context.Context) (context.Context, context.CancelFunc) {
 		}
 		cancel()
 	}
-
 	return context.WithValue(ctx, cliOutMgrContextKey, cliOut), cancel2
 }
 
-func SpinnerTotal(ctx context.Context, total int64) context.Context {
+func WithCLISpinner(ctx context.Context, initialMsg string) (context.Context, func(string), context.CancelFunc) {
+	ctx, cancel := initCLISpinner(ctx)
 	cliOut, ok := ctx.Value(cliOutMgrContextKey).(CLIOutConfig)
 	if !ok {
-		cliOut = CLIOutConfig{}
+		panic("initCLISpinner must set cliOutMgrContextKey")
 	}
 	if cliOut.spinner == nil {
-		panic("cannot call SpinnerTotal before WithSpinner")
+		panic("initCLISpinner must set spinner")
 	}
-	cliOut.spinnerTotal = total
-	return context.WithValue(ctx, cliOutMgrContextKey, cliOut)
+
+	update := func(msg string) {
+		suffix := " " + msg
+		if len(suffix) > cliOut.maxSpinMsgWidth {
+			suffix = suffix[:cliOut.maxSpinMsgWidth-3] + "..."
+		}
+		if cliOut.spinner != nil {
+			cliOut.spinner.Suffix = suffix
+		}
+	}
+	update(initialMsg)
+
+	return ctx, update, cancel
+}
+
+func WithCLIProgress(ctx context.Context, verb string, progressTotal int64) (context.Context, func(int64), context.CancelFunc) {
+	ctx, cancel := initCLISpinner(ctx)
+	cliOut, ok := ctx.Value(cliOutMgrContextKey).(CLIOutConfig)
+	if !ok {
+		panic("initCLISpinner must set cliOutMgrContextKey")
+	}
+	if cliOut.spinner == nil {
+		panic("initCLISpinner must set spinner")
+	}
+
+	update := func(progress int64) {
+		if len(verb) > 0 {
+			verb = " " + verb
+		}
+		if progressTotal > 0 {
+			cliOut.spinner.Suffix = fmt.Sprintf("%s %d / %d (%.f%%)", verb, progress, progressTotal, math.Round(100*float64(progress)/float64(progressTotal)))
+		} else {
+			cliOut.spinner.Suffix = fmt.Sprintf("%s #%d ...", verb, progress)
+		}
+	}
+	update(0)
+
+	return ctx, update, cancel
+}
+
+type spinningLogBuffer struct {
+	logs []string
 }
 
 func (c CLIOutConfig) HasSpinner() bool {
@@ -139,7 +180,7 @@ func (c CLIOutConfig) Warnings(msgs []string) {
 }
 
 func (c CLIOutConfig) Log(msg string) {
-	if c.verbose && EchoLogsToStdErr() {
+	if c.isVerbose && EchoLogsToStdErr() {
 		c.Verbose(msg)
 	}
 	if c.spinner != nil && c.spinner.Active() && c.spinLogBuffer != nil {
@@ -156,45 +197,17 @@ func (c CLIOutConfig) LogMulti(msgs []string) {
 }
 
 func (c CLIOutConfig) Verbose(msg string) {
-	if !c.verbose {
+	if !c.isVerbose {
 		return
 	}
 	log.Println(msg)
 }
 
 func (c CLIOutConfig) VerboseMulti(msgs []string) {
-	if !c.verbose {
+	if !c.isVerbose {
 		return
 	}
 	for _, msg := range msgs {
 		c.Verbose(msg)
 	}
-}
-
-func (c CLIOutConfig) SpinMessage(msg string) {
-	suffix := " " + msg
-	if len(suffix) > c.maxSpinMsgWidth {
-		suffix = suffix[:c.maxSpinMsgWidth-3] + "..."
-	}
-	if c.spinner != nil {
-		c.spinner.Suffix = suffix
-	}
-}
-
-func (c CLIOutConfig) SpinProgress(n int64, verb string) {
-	if c.spinner == nil {
-		return
-	}
-	if len(verb) > 0 {
-		verb = " " + verb
-	}
-	if c.spinnerTotal > 0 {
-		c.spinner.Suffix = fmt.Sprintf("%s %d / %d (%.f%%)", verb, n, c.spinnerTotal, math.Round(100*float64(n)/float64(c.spinnerTotal)))
-	} else {
-		c.spinner.Suffix = fmt.Sprintf("%s #%d ...", verb, n)
-	}
-}
-
-type spinningLogBuffer struct {
-	logs []string
 }
