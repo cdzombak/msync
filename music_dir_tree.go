@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"msync/cli"
 	"msync/dzutil"
 
 	"github.com/Bios-Marcel/wastebasket"
@@ -59,7 +60,7 @@ func MakeMusicTreeNode(ctx context.Context, filePath string, parentNodePath []st
 	} else if n.Mode.IsRegular() || n.Mode&os.ModeSymlink != 0 {
 		n.IsFile = true
 	} else {
-		CLIOut(ctx).Warning(fmt.Sprintf("Skipping '%s': it is not a regular file.", filePath))
+		cli.Out(ctx).Warning(fmt.Sprintf("Skipping '%s': it is not a regular file.", filePath))
 		return nil, nil
 	}
 	if n.IsDirectory {
@@ -75,7 +76,7 @@ func MakeMusicTreeNode(ctx context.Context, filePath string, parentNodePath []st
 			}
 			if childNode != nil {
 				if existingNode, ok := n.Children[childNode.BaseNameNormalized]; ok {
-					CLIOut(ctx).Warning(fmt.Sprintf("Normalized name collision in '%s': '%s' and '%s'.", filePath, existingNode.BaseName, childNode.BaseName))
+					cli.Out(ctx).Warning(fmt.Sprintf("Normalized name collision in '%s': '%s' and '%s'.", filePath, existingNode.BaseName, childNode.BaseName))
 				}
 				n.Children[childNode.BaseNameNormalized] = childNode
 			}

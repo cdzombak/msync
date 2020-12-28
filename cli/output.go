@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -34,7 +34,7 @@ func (c contextKey) String() string {
 	return "cli_output context key " + string(c)
 }
 
-type CLIOutConfig struct {
+type OutConfig struct {
 	isVerbose       bool
 	spinner         *spinner.Spinner
 	maxSpinMsgWidth int
@@ -43,39 +43,39 @@ type CLIOutConfig struct {
 
 var cliOutMgrContextKey = contextKey("cliOutMgr")
 
-func (c *CLIOutConfig) useProgressIndicators() bool {
+func (c *OutConfig) useProgressIndicators() bool {
 	return !c.isVerbose && IsStdoutTerminal()
 }
 
-func CLIOut(ctx context.Context) CLIOutConfig {
-	cliOut, ok := ctx.Value(cliOutMgrContextKey).(CLIOutConfig)
+func Out(ctx context.Context) OutConfig {
+	cliOut, ok := ctx.Value(cliOutMgrContextKey).(OutConfig)
 	if ok {
 		return cliOut
 	}
-	return CLIOutConfig{}
+	return OutConfig{}
 }
 
 func WithCLIOut(ctx context.Context) context.Context {
-	_, ok := ctx.Value(cliOutMgrContextKey).(CLIOutConfig)
+	_, ok := ctx.Value(cliOutMgrContextKey).(OutConfig)
 	if ok {
 		return ctx
 	}
-	return context.WithValue(ctx, cliOutMgrContextKey, CLIOutConfig{})
+	return context.WithValue(ctx, cliOutMgrContextKey, OutConfig{})
 }
 
-func WithVerboseCLIOut(ctx context.Context) context.Context {
-	cliOut, ok := ctx.Value(cliOutMgrContextKey).(CLIOutConfig)
+func WithVerboseOut(ctx context.Context) context.Context {
+	cliOut, ok := ctx.Value(cliOutMgrContextKey).(OutConfig)
 	if !ok {
-		cliOut = CLIOutConfig{}
+		cliOut = OutConfig{}
 	}
 	cliOut.isVerbose = true
 	return context.WithValue(ctx, cliOutMgrContextKey, cliOut)
 }
 
-func initCLISpinner(ctx context.Context) (context.Context, context.CancelFunc) {
-	cliOut, ok := ctx.Value(cliOutMgrContextKey).(CLIOutConfig)
+func initSpinner(ctx context.Context) (context.Context, context.CancelFunc) {
+	cliOut, ok := ctx.Value(cliOutMgrContextKey).(OutConfig)
 	if !ok {
-		cliOut = CLIOutConfig{}
+		cliOut = OutConfig{}
 	}
 
 	if cliOut.spinner == nil {
@@ -112,14 +112,14 @@ func initCLISpinner(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithValue(ctx, cliOutMgrContextKey, cliOut), cancel2
 }
 
-func WithCLISpinner(ctx context.Context, initialMsg string) (context.Context, func(string), context.CancelFunc) {
-	ctx, cancel := initCLISpinner(ctx)
-	cliOut, ok := ctx.Value(cliOutMgrContextKey).(CLIOutConfig)
+func WithSpinner(ctx context.Context, initialMsg string) (context.Context, func(string), context.CancelFunc) {
+	ctx, cancel := initSpinner(ctx)
+	cliOut, ok := ctx.Value(cliOutMgrContextKey).(OutConfig)
 	if !ok {
-		panic("initCLISpinner must set cliOutMgrContextKey")
+		panic("initSpinner must set cliOutMgrContextKey")
 	}
 	if cliOut.spinner == nil {
-		panic("initCLISpinner must set spinner")
+		panic("initSpinner must set spinner")
 	}
 
 	update := func(msg string) {
@@ -136,14 +136,14 @@ func WithCLISpinner(ctx context.Context, initialMsg string) (context.Context, fu
 	return ctx, update, cancel
 }
 
-func WithCLIProgress(ctx context.Context, verb string, progressTotal int64) (context.Context, func(int64), context.CancelFunc) {
-	ctx, cancel := initCLISpinner(ctx)
-	cliOut, ok := ctx.Value(cliOutMgrContextKey).(CLIOutConfig)
+func WithProgress(ctx context.Context, verb string, progressTotal int64) (context.Context, func(int64), context.CancelFunc) {
+	ctx, cancel := initSpinner(ctx)
+	cliOut, ok := ctx.Value(cliOutMgrContextKey).(OutConfig)
 	if !ok {
-		panic("initCLISpinner must set cliOutMgrContextKey")
+		panic("initSpinner must set cliOutMgrContextKey")
 	}
 	if cliOut.spinner == nil {
-		panic("initCLISpinner must set spinner")
+		panic("initSpinner must set spinner")
 	}
 
 	update := func(progress int64) {
@@ -165,21 +165,21 @@ type spinningLogBuffer struct {
 	logs []string
 }
 
-func (c CLIOutConfig) HasSpinner() bool {
+func (c OutConfig) HasSpinner() bool {
 	return c.spinner != nil
 }
 
-func (c CLIOutConfig) Warning(msg string) {
+func (c OutConfig) Warning(msg string) {
 	c.Log("[warning] " + msg)
 }
 
-func (c CLIOutConfig) Warnings(msgs []string) {
+func (c OutConfig) Warnings(msgs []string) {
 	for _, msg := range msgs {
 		c.Warning(msg)
 	}
 }
 
-func (c CLIOutConfig) Log(msg string) {
+func (c OutConfig) Log(msg string) {
 	if c.isVerbose && EchoLogsToStdErr() {
 		c.Verbose(msg)
 	}
@@ -190,20 +190,20 @@ func (c CLIOutConfig) Log(msg string) {
 	}
 }
 
-func (c CLIOutConfig) LogMulti(msgs []string) {
+func (c OutConfig) LogMulti(msgs []string) {
 	for _, msg := range msgs {
 		c.Log(msg)
 	}
 }
 
-func (c CLIOutConfig) Verbose(msg string) {
+func (c OutConfig) Verbose(msg string) {
 	if !c.isVerbose {
 		return
 	}
 	log.Println(msg)
 }
 
-func (c CLIOutConfig) VerboseMulti(msgs []string) {
+func (c OutConfig) VerboseMulti(msgs []string) {
 	if !c.isVerbose {
 		return
 	}
