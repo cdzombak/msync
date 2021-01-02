@@ -51,10 +51,6 @@ type OutConfig struct {
 
 var cliOutMgrContextKey = contextKey("cliOutMgr")
 
-func (c *OutConfig) useProgressIndicators() bool {
-	return !c.isVerbose && IsStdoutTerminal()
-}
-
 func Out(ctx context.Context) OutConfig {
 	cliOut, ok := ctx.Value(cliOutMgrContextKey).(OutConfig)
 	if ok {
@@ -86,6 +82,10 @@ func initSpinner(ctx context.Context) (context.Context, context.CancelFunc) {
 		cliOut = OutConfig{}
 	}
 
+	if cliOut.isVerbose || !IsStdoutTerminal() {
+		return context.WithCancel(ctx)
+	}
+
 	if cliOut.spinner == nil {
 		cliOut.spinner = spinner.New(spinner.CharSets[14], 50*time.Millisecond)
 	}
@@ -110,7 +110,7 @@ func initSpinner(ctx context.Context) (context.Context, context.CancelFunc) {
 
 	ctx, cancel := context.WithCancel(ctx)
 	cancel2 := func() {
-		// TODO(cdzombak): do this if context is canceled from above, too
+		// TODO(cdzombak): do this if context is canceled from above, too (locking for spin log buffer & future logs until complete; then remove this ugly override)
 		cliOut.spinner.Stop()
 		ShowTerminalCursor()
 		if cliOut.spinLogBuffer != nil && len(cliOut.spinLogBuffer.logs) > 0 {
@@ -129,7 +129,14 @@ func WithSpinner(ctx context.Context, initialMsg string) (context.Context, func(
 		panic("initSpinner must set cliOutMgrContextKey")
 	}
 	if cliOut.spinner == nil {
-		panic("initSpinner must set spinner")
+		if cliOut.isVerbose {
+			return ctx, func(s string) {
+				cliOut.Verbose(s)
+			}, cancel
+		} else {
+			// not verbose, but standard out is noninteractive, so do nothing:
+			return ctx, func(s string) {}, cancel
+		}
 	}
 
 	update := func(msg string) {
@@ -153,7 +160,15 @@ func WithProgress(ctx context.Context, verb string, progressTotal int64) (contex
 		panic("initSpinner must set cliOutMgrContextKey")
 	}
 	if cliOut.spinner == nil {
-		panic("initSpinner must set spinner")
+		if cliOut.isVerbose {
+			return ctx, func(i int64) {
+				// TODO(cdzombak): log 10% intervals verbosely
+			}, cancel
+		} else {
+			return ctx, func(i int64) {
+				// TODO(cdzombak): log 25% intervals normally
+			}, cancel
+		}
 	}
 
 	update := func(progress int64) {

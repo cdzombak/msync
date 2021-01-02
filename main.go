@@ -290,7 +290,6 @@ func msyncMain() error {
 				if !*dryRunFlag {
 					cli.Out(spinCtx).Verbose(fmt.Sprintf("Transcoding '%s' to '%s' at %s ...", n.FilesystemPath, destPath, ffmpegBitrateStr))
 					// try without discarding album art; and if that fails try once more discarding video entirely:
-					// TODO(cdzombak): this is insanely ugly. refactor: https://github.com/cdzombak/msync/issues/5
 					out, err := dzutil.Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", n.FilesystemPath, "-c:v", "copy", "-c:a", "aac", "-b:a", ffmpegBitrateStr, destPath})
 					if err != nil {
 						_ = os.Remove(destPath)
