@@ -47,6 +47,7 @@ type OutConfig struct {
 	spinner         *spinner.Spinner
 	maxSpinMsgWidth int
 	spinLogBuffer   *spinningLogBuffer
+	lastProgress    *int64
 }
 
 var cliOutMgrContextKey = contextKey("cliOutMgr")
@@ -81,9 +82,13 @@ func initSpinner(ctx context.Context) (context.Context, context.CancelFunc) {
 	if !ok {
 		cliOut = OutConfig{}
 	}
+	if cliOut.lastProgress == nil {
+		p := int64(0)
+		cliOut.lastProgress = &p
+	}
 
 	if cliOut.isVerbose || !IsStdoutTerminal() {
-		return context.WithCancel(ctx)
+		return context.WithCancel(context.WithValue(ctx, cliOutMgrContextKey, cliOut))
 	}
 
 	if cliOut.spinner == nil {
@@ -161,12 +166,22 @@ func WithProgress(ctx context.Context, verb string, progressTotal int64) (contex
 	}
 	if cliOut.spinner == nil {
 		if cliOut.isVerbose {
-			return ctx, func(i int64) {
-				// TODO(cdzombak): log 10% intervals verbosely
+			return ctx, func(progress int64) {
+				oldProgress := 10*float64(*cliOut.lastProgress)/float64(progressTotal)
+				newProgress := 10*float64(progress)/float64(progressTotal)
+				if math.Abs(math.Floor(newProgress) - math.Floor(oldProgress)) > 0.01 {
+					cliOut.Verbose(fmt.Sprintf("%s %d / %d (%.f%%)", verb, progress, progressTotal, math.Round(10*newProgress)))
+				}
+				*cliOut.lastProgress = progress
 			}, cancel
 		} else {
-			return ctx, func(i int64) {
-				// TODO(cdzombak): log 25% intervals normally
+			return ctx, func(progress int64) {
+				oldProgress := float64(*cliOut.lastProgress)/float64(progressTotal)
+				newProgress := float64(progress)/float64(progressTotal)
+				if (oldProgress < 0.25 && newProgress >= 0.25) || (oldProgress < 0.5 && newProgress >= 0.5) || (oldProgress < 0.75 && newProgress >= 0.75) || (oldProgress < 1.0 && newProgress >= 1.0) {
+					cliOut.Log(fmt.Sprintf("%s %d / %d (%.f%%)", verb, progress, progressTotal, math.Round(100*newProgress)))
+				}
+				*cliOut.lastProgress = progress
 			}, cancel
 		}
 	}
