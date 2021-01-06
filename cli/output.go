@@ -45,7 +45,6 @@ func (c contextKey) String() string {
 type OutConfig struct {
 	isVerbose       bool
 	spinner         *spinner.Spinner
-	maxSpinMsgWidth int
 	spinLogBuffer   *spinningLogBuffer
 	lastProgress    *int64
 }
@@ -98,15 +97,6 @@ func initSpinner(ctx context.Context) (context.Context, context.CancelFunc) {
 		cliOut.spinLogBuffer = &spinningLogBuffer{}
 	}
 
-	// TODO(cdzombak): update periodically (200ms) if spinner is active, but be sure not to leak goroutines doing that forever eg. take cancellation into account
-	maxWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil || maxWidth == 0 {
-		maxWidth = int(math.Round(80.0 * 0.7))
-	} else {
-		maxWidth = int(math.Round(float64(maxWidth) * 0.75))
-	}
-	cliOut.maxSpinMsgWidth = maxWidth
-
 	_ = cliOut.spinner.Color("reset")
 	cliOut.spinner.HideCursor = true
 	if !cliOut.spinner.Active() {
@@ -145,9 +135,16 @@ func WithSpinner(ctx context.Context, initialMsg string) (context.Context, func(
 	}
 
 	update := func(msg string) {
+		maxWidth, _, err := term.GetSize(int(os.Stdout.Fd()))
+		if err != nil || maxWidth == 0 {
+			maxWidth = int(math.Round(80.0 * 0.75))
+		} else {
+			maxWidth = int(math.Round(float64(maxWidth) * 0.75))
+		}
+
 		suffix := " " + msg
-		if len(suffix) > cliOut.maxSpinMsgWidth {
-			suffix = suffix[:cliOut.maxSpinMsgWidth-3] + "..."
+		if len(suffix) > maxWidth {
+			suffix = suffix[:maxWidth-3] + "..."
 		}
 		if cliOut.spinner != nil {
 			cliOut.spinner.Suffix = suffix
