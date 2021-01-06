@@ -104,17 +104,18 @@ func initSpinner(ctx context.Context) (context.Context, context.CancelFunc) {
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	cancel2 := func() {
-		// TODO(cdzombak): do this if context is canceled from above, too (locking for spin log buffer & future logs until complete; then remove this ugly override)
+
+	go func() {
+		<- ctx.Done()
 		cliOut.spinner.Stop()
 		ShowTerminalCursor()
 		if cliOut.spinLogBuffer != nil && len(cliOut.spinLogBuffer.logs) > 0 {
 			cliOut.LogMulti(cliOut.spinLogBuffer.logs)
 			cliOut.spinLogBuffer.logs = nil
 		}
-		cancel()
-	}
-	return context.WithValue(ctx, cliOutMgrContextKey, cliOut), cancel2
+	}()
+
+	return context.WithValue(ctx, cliOutMgrContextKey, cliOut), cancel
 }
 
 func WithSpinner(ctx context.Context, initialMsg string) (context.Context, func(string), context.CancelFunc) {
