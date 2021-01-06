@@ -58,7 +58,7 @@ func main() {
 		if *verboseFlag && cli.EchoLogsToStdErr() {
 			log.Println(err.Error())
 		}
-		fmt.Printf("Error: %s", err.Error())
+		fmt.Printf("Error: %s\n", err.Error())
 		os.Exit(1)
 	}
 }
