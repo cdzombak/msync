@@ -38,7 +38,7 @@ var (
 	printVersion                 = flag.Bool("version", false, "Print version and exit.")
 	removeOtherFilesFromDestFlag = flag.Bool("remove-nonmusic-from-dest", false, "If true, remove any non-music files from the destination.")
 	toFlag                       = flag.String("to", "", "Destination directory for mirrored/re-encoded music library. (Required)")
-	verboseFlag                  = flag.Bool("isVerbose", false, "Log detailed output to stderr. Suppresses progress indicators.")
+	verboseFlag                  = flag.Bool("verbose", false, "Log detailed output to stderr. Suppresses progress indicators.")
 )
 
 func main() {
@@ -85,16 +85,8 @@ func msyncMain() error {
 	}
 
 	cli.Out(ctx).Log(fmt.Sprintf("Scanning source directory (%s) ...", sourceRootPath))
-	spinCtx, spinMessage, spinStop := cli.WithSpinner(ctx, "...")
-	sourceTree, err := MakeMusicTree(spinCtx, sourceRootPath, func(currentPath string) {
-		if !cli.Out(spinCtx).HasSpinner() {
-			return
-		}
-		msg := strings.TrimPrefix(currentPath, sourceRootPath)
-		msg = strings.TrimPrefix(msg, string(os.PathSeparator))
-		msg = strings.SplitN(msg, string(os.PathSeparator), 2)[0]
-		spinMessage(msg)
-	})
+	spinCtx, _, spinStop := cli.WithSpinner(ctx, "scanning")
+	sourceTree, err := MakeMusicTree(spinCtx, sourceRootPath)
 	spinStop()
 	if err != nil {
 		return err
@@ -102,16 +94,8 @@ func msyncMain() error {
 	cli.Out(ctx).Log(fmt.Sprintf("Source tree (%s) size is %s", sourceRootPath, filesize.ByteCountBothStyles(sourceTree.CalculateSize())))
 
 	cli.Out(ctx).Log(fmt.Sprintf("Scanning destination directory (%s) ...", destRootPath))
-	spinCtx, spinMessage, spinStop = cli.WithSpinner(ctx, "...")
-	destTree, err := MakeMusicTree(spinCtx, destRootPath, func(currentPath string) {
-		if !cli.Out(spinCtx).HasSpinner() {
-			return
-		}
-		msg := strings.TrimPrefix(currentPath, destRootPath)
-		msg = strings.TrimPrefix(msg, string(os.PathSeparator))
-		msg = strings.SplitN(msg, string(os.PathSeparator), 2)[0]
-		spinMessage(msg)
-	})
+	spinCtx, _, spinStop = cli.WithSpinner(ctx, "scanning")
+	destTree, err := MakeMusicTree(spinCtx, destRootPath)
 	spinStop()
 	if err != nil {
 		return err

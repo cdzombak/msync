@@ -7,7 +7,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 
 	"msync/cli"
 	"msync/dzutil"
@@ -32,16 +34,57 @@ type MusicTreeNode struct {
 
 // MakeMusicTree builds a music tree rooted at the given path on disk.
 // The given progress function is called with each path as it's scanned.
-func MakeMusicTree(ctx context.Context, filePath string, progress func(currentPath string)) (*MusicTreeNode, error) {
-	return MakeMusicTreeNode(ctx, filePath, nil, true, progress)
+func MakeMusicTree(ctx context.Context, filePath string) (*MusicTreeNode, error) {
+	tree, err := makeMusicTreeNode(ctx, filePath, nil, true)
+	if err != nil {
+		return tree, err
+	}
+	var nodesNeedingBitrate []*MusicTreeNode
+	_ = tree.Walk(func(n *MusicTreeNode) error {
+		if n.IsMusicFile && n.FileBitrate == 0 {
+			nodesNeedingBitrate = append(nodesNeedingBitrate, n)
+		}
+		return nil
+	})
+	cpuCount := runtime.NumCPU()
+	cli.Out(ctx).Verbose(fmt.Sprintf("will run %d goroutines to check file bitrates", cpuCount))
+	currentIdx := -1
+	var nodesQueueLock sync.Mutex
+	var wg sync.WaitGroup
+	for i := 0; i <= cpuCount; i++ {
+		wg.Add(1)
+		go func() {
+			for {
+				nodesQueueLock.Lock()
+				currentIdx++
+				if currentIdx >= len(nodesNeedingBitrate) {
+					nodesQueueLock.Unlock()
+					wg.Done()
+					return
+				}
+				n := nodesNeedingBitrate[currentIdx]
+				nodesQueueLock.Unlock()
+				bitrate, brErr := fileBitrate(n.FilesystemPath)
+				if brErr != nil {
+					nodesQueueLock.Lock()
+					err = brErr // it's possible that up to NumCPUs errors occur and we only see the most recent one, but we'll still exit, so whatever
+					nodesQueueLock.Unlock()
+					wg.Done()
+					return
+				}
+				n.FileBitrate = bitrate
+			}
+		}()
+	}
+	wg.Wait()
+	return tree, err
 }
 
-// MakeMusicTreeNode returns nil if the path does not point to a directory, regular file, or symlink.
-func MakeMusicTreeNode(ctx context.Context, filePath string, parentNodePath []string, isRootNode bool, progress func(currentPath string)) (*MusicTreeNode, error) {
+// makeMusicTreeNode returns nil if the path does not point to a directory, regular file, or symlink.
+func makeMusicTreeNode(ctx context.Context, filePath string, parentNodePath []string, isRootNode bool) (*MusicTreeNode, error) {
 	if *verboseFlag {
 		log.Printf("Scanning '%s' ...", filePath)
 	}
-	progress(filePath)
 	rootInfo, err := os.Stat(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat '%s': %w", filePath, err)
@@ -70,7 +113,7 @@ func MakeMusicTreeNode(ctx context.Context, filePath string, parentNodePath []st
 			return nil, fmt.Errorf("failed to list '%s': %w", filePath, err)
 		}
 		for _, child := range children {
-			childNode, err := MakeMusicTreeNode(ctx, filepath.Join(filePath, child.Name()), n.TreePath, false, progress)
+			childNode, err := makeMusicTreeNode(ctx, filepath.Join(filePath, child.Name()), n.TreePath, false)
 			if err != nil {
 				return nil, err
 			}
@@ -85,11 +128,6 @@ func MakeMusicTreeNode(ctx context.Context, filePath string, parentNodePath []st
 		n.FileSize = rootInfo.Size()
 		if isMusicFile(filePath) {
 			n.IsMusicFile = true
-			bitrate, err := fileBitrate(filePath)
-			if err != nil {
-				return nil, err
-			}
-			n.FileBitrate = bitrate
 		}
 	}
 	return n, nil
