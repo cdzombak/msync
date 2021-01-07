@@ -194,10 +194,11 @@ func WithProgress(ctx context.Context, verb string, progressTotal int64) (contex
 		}
 	}
 
+	if len(verb) > 0 {
+		verb = " " + verb
+	}
+
 	update := func(progress int64) {
-		if len(verb) > 0 {
-			verb = " " + verb
-		}
 		if progressTotal > 0 {
 			cliOut.spinner.Suffix = fmt.Sprintf("%s %d / %d (%.f%%)", verb, progress, progressTotal, math.Round(100*float64(progress)/float64(progressTotal)))
 		} else {
