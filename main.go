@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -14,6 +15,8 @@ import (
 	"msync/cli"
 	"msync/dzutil"
 	"msync/filesize"
+
+	"github.com/Bios-Marcel/wastebasket"
 )
 
 var version = "undefined (dev?)"
@@ -39,6 +42,7 @@ var (
 	removeOtherFilesFromDestFlag = flag.Bool("remove-nonmusic-from-dest", false, "If true, remove any non-music files from the destination.")
 	toFlag                       = flag.String("to", "", "Destination directory for mirrored/re-encoded music library. (Required)")
 	verboseFlag                  = flag.Bool("verbose", false, "Log detailed output to stderr. Suppresses progress indicators.")
+	askTrashPermissionFlag       = flag.Bool("ask-trash-permission", false, "Try to remove a temporary file to the Trash, then exit. This will cause macOS to display the requisite automation permission dialog immediately.")
 )
 
 func main() {
@@ -49,6 +53,27 @@ func main() {
 		fmt.Println(version)
 		os.Exit(0)
 	}
+
+	if *askTrashPermissionFlag {
+		file, err := ioutil.TempFile("/tmp", "msync")
+		if err != nil {
+			if *verboseFlag && cli.EchoLogsToStdErr() {
+				log.Println(err.Error())
+			}
+			fmt.Printf("Error: %s\n", err.Error())
+			os.Exit(1)
+		}
+		file.Close()
+		if err := wastebasket.Trash(file.Name()); err != nil {
+			if *verboseFlag && cli.EchoLogsToStdErr() {
+				log.Println(err.Error())
+			}
+			fmt.Printf("Error: %s\n", err.Error())
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	if *fromFlag == "" || *toFlag == "" {
 		flag.Usage()
 		os.Exit(1)
