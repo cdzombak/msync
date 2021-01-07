@@ -47,7 +47,7 @@ func MakeMusicTree(ctx context.Context, filePath string) (*MusicTreeNode, error)
 		return nil
 	})
 	cpuCount := runtime.NumCPU()
-	cli.Out(ctx).Verbose(fmt.Sprintf("will run %d goroutines to check file bitrates", cpuCount))
+	cli.Out(ctx).Verbose(fmt.Sprintf("using %d goroutines to check file bitrates", cpuCount))
 	currentIdx := -1
 	var nodesQueueLock sync.Mutex
 	var wg sync.WaitGroup
@@ -57,7 +57,7 @@ func MakeMusicTree(ctx context.Context, filePath string) (*MusicTreeNode, error)
 			for {
 				nodesQueueLock.Lock()
 				currentIdx++
-				if currentIdx >= len(nodesNeedingBitrate) {
+				if currentIdx >= len(nodesNeedingBitrate) || err != nil {
 					nodesQueueLock.Unlock()
 					wg.Done()
 					return
