@@ -6,30 +6,39 @@ import (
 	"log"
 	"math"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/briandowns/spinner"
 	"golang.org/x/term"
 )
 
-// IsStdoutTerminal returns true iff standard output is an interactive terminal.
-func IsStdoutTerminal() bool {
+// There is one and only one standard out, which is used for logging and for the spinner.
+// Using a spinner will lock this for the entire time it's active, and writes to standard out
+// will lock this to avoid stepping on each other, on the spinner, or on logs queued while the
+// spinner is active being printed when the spinner context is cancelled.
+var stdOutLock sync.Mutex
+
+// isStdoutTerminal returns true iff standard output is an interactive terminal.
+func isStdoutTerminal() bool {
 	return term.IsTerminal(int(os.Stdout.Fd()))
 }
 
-// IsStderrTerminal returns true iff standard err is an interactive terminal.
-func IsStderrTerminal() bool {
+// isStderrTerminal returns true iff standard err is an interactive terminal.
+func isStderrTerminal() bool {
 	return term.IsTerminal(int(os.Stderr.Fd()))
 }
 
 // EchoLogsToStdErr returns true iff messages sent to standard out should
 // also be echoed to standard error.
 func EchoLogsToStdErr() bool {
-	return (IsStdoutTerminal() != IsStderrTerminal()) || (!IsStdoutTerminal() && !IsStderrTerminal())
+	return (isStdoutTerminal() != isStderrTerminal()) || (!isStdoutTerminal() && !isStderrTerminal())
 }
 
+// ShowTerminalCursor emits the escape code needed to show the cursor on standard out,
+// iff standard out is a terminal.
 func ShowTerminalCursor() {
-	if !IsStdoutTerminal() {
+	if !isStdoutTerminal() {
 		return
 	}
 	// from Go sample at https://rosettacode.org/wiki/Terminal_control/Hiding_the_cursor#Escape_code
@@ -43,10 +52,10 @@ func (c contextKey) String() string {
 }
 
 type OutConfig struct {
-	isVerbose       bool
-	spinner         *spinner.Spinner
-	spinLogBuffer   *spinningLogBuffer
-	lastProgress    *int64
+	isVerbose     bool
+	spinner       *spinner.Spinner
+	spinLogBuffer *spinningLogBuffer
+	lastProgress  *int64
 }
 
 var cliOutMgrContextKey = contextKey("cliOutMgr")
@@ -81,34 +90,30 @@ func initSpinner(ctx context.Context) (context.Context, context.CancelFunc) {
 	if !ok {
 		cliOut = OutConfig{}
 	}
-	if cliOut.lastProgress == nil {
-		p := int64(0)
-		cliOut.lastProgress = &p
-	}
 
-	if cliOut.isVerbose || !IsStdoutTerminal() {
+	if cliOut.isVerbose || !isStdoutTerminal() {
 		return context.WithCancel(context.WithValue(ctx, cliOutMgrContextKey, cliOut))
 	}
 
-	if cliOut.spinner == nil {
-		cliOut.spinner = spinner.New(spinner.CharSets[14], 50*time.Millisecond)
-	}
-	if cliOut.spinLogBuffer == nil {
-		cliOut.spinLogBuffer = &spinningLogBuffer{}
+	if cliOut.spinner != nil {
+		// never start a second spinner.
+		return context.WithCancel(context.WithValue(ctx, cliOutMgrContextKey, cliOut))
 	}
 
+	stdOutLock.Lock()
+	cliOut.spinner = spinner.New(spinner.CharSets[14], 50*time.Millisecond)
+	cliOut.spinLogBuffer = &spinningLogBuffer{}
 	_ = cliOut.spinner.Color("reset")
 	cliOut.spinner.HideCursor = true
-	if !cliOut.spinner.Active() {
-		cliOut.spinner.Start()
-	}
+	cliOut.spinner.Start()
 
 	ctx, cancel := context.WithCancel(ctx)
 
 	go func() {
-		<- ctx.Done()
+		<-ctx.Done()
 		cliOut.spinner.Stop()
 		ShowTerminalCursor()
+		stdOutLock.Unlock()
 		if cliOut.spinLogBuffer != nil && len(cliOut.spinLogBuffer.logs) > 0 {
 			cliOut.LogMulti(cliOut.spinLogBuffer.logs)
 			cliOut.spinLogBuffer.logs = nil
@@ -162,20 +167,25 @@ func WithProgress(ctx context.Context, verb string, progressTotal int64) (contex
 	if !ok {
 		panic("initSpinner must set cliOutMgrContextKey")
 	}
+	if cliOut.lastProgress == nil {
+		// needed even if we don't have a spinner, for progress logging in verbose
+		p := int64(0)
+		cliOut.lastProgress = &p
+	}
 	if cliOut.spinner == nil {
 		if cliOut.isVerbose {
 			return ctx, func(progress int64) {
-				oldProgress := 10*float64(*cliOut.lastProgress)/float64(progressTotal)
-				newProgress := 10*float64(progress)/float64(progressTotal)
-				if math.Abs(math.Floor(newProgress) - math.Floor(oldProgress)) > 0.01 {
+				oldProgress := 10 * float64(*cliOut.lastProgress) / float64(progressTotal)
+				newProgress := 10 * float64(progress) / float64(progressTotal)
+				if math.Abs(math.Floor(newProgress)-math.Floor(oldProgress)) > 0.01 {
 					cliOut.Verbose(fmt.Sprintf("%s %d / %d (%.f%%)", verb, progress, progressTotal, math.Round(10*newProgress)))
 				}
 				*cliOut.lastProgress = progress
 			}, cancel
 		} else {
 			return ctx, func(progress int64) {
-				oldProgress := float64(*cliOut.lastProgress)/float64(progressTotal)
-				newProgress := float64(progress)/float64(progressTotal)
+				oldProgress := float64(*cliOut.lastProgress) / float64(progressTotal)
+				newProgress := float64(progress) / float64(progressTotal)
 				if (oldProgress < 0.25 && newProgress >= 0.25) || (oldProgress < 0.5 && newProgress >= 0.5) || (oldProgress < 0.75 && newProgress >= 0.75) || (oldProgress < 1.0 && newProgress >= 1.0) {
 					cliOut.Log(fmt.Sprintf("%s %d / %d (%.f%%)", verb, progress, progressTotal, math.Round(100*newProgress)))
 				}
@@ -224,6 +234,8 @@ func (c OutConfig) Log(msg string) {
 	if c.spinner != nil && c.spinner.Active() && c.spinLogBuffer != nil {
 		c.spinLogBuffer.logs = append(c.spinLogBuffer.logs, msg)
 	} else {
+		stdOutLock.Lock()
+		defer stdOutLock.Unlock()
 		fmt.Println(msg)
 	}
 }
