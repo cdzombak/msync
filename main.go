@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"msync/cli"
 	"msync/dzutil"
@@ -66,6 +69,11 @@ func main() {
 		fmt.Printf("Error: %s\n", err.Error())
 		os.Exit(1)
 	}
+}
+
+type transcodeOp struct {
+	source *MusicTreeNode
+	dest   *MusicTreeNode
 }
 
 func msyncMain() error {
@@ -203,12 +211,13 @@ func msyncMain() error {
 	ffmpegBitrateStr := strconv.Itoa(*maxBitrateKbpsFlag) + "k"
 	didMkdir := make(map[string]bool)
 	filesSyncedCount := 0
+	var transcodeQueue []transcodeOp
 
 	// either copy/link or re-encode all music files & directories from source that aren't in dest:
 	if *makeSymlinksFlag {
-		cli.Out(ctx).Log(fmt.Sprintf("Syncing music files from source to destination. Files over %d Kbps will be transcoded; others will be symlinked.", *maxBitrateKbpsFlag))
+		cli.Out(ctx).Log(fmt.Sprintf("Syncing music files from source to destination. Files over %d Kbps will be queued for transcoding; others will be symlinked.", *maxBitrateKbpsFlag))
 	} else {
-		cli.Out(ctx).Log(fmt.Sprintf("Syncing music files from source to destination. Files over %d Kbps will be transcoded; others will be copied.", *maxBitrateKbpsFlag))
+		cli.Out(ctx).Log(fmt.Sprintf("Syncing music files from source to destination. Files over %d Kbps will be queued for transcoding; others will be copied.", *maxBitrateKbpsFlag))
 	}
 	sourceI := int64(0)
 	spinCtx, spinProgress, spinStop = cli.WithProgress(ctx, "syncing", sourceTree.CountNodes())
@@ -282,29 +291,30 @@ func msyncMain() error {
 				return nil
 			}
 
-			var newFileSize int64
-			var newFileMode os.FileMode
-			newFileBitrate := 0
+			var destDirPartsNormalized []string
+			for _, v := range destDirParts {
+				destDirPartsNormalized = append(destDirPartsNormalized, normalizeFileNameForComparing(v))
+			}
+			destFileName := filepath.Base(destPath)
+			destFileNameNormalized := normalizeFileNameForComparing(destFileName)
+
 			if needsTranscode {
-				newFileBitrate = targetTranscodeBitrate
-				if !*dryRunFlag {
-					cli.Out(spinCtx).Verbose(fmt.Sprintf("Transcoding '%s' to '%s' at %s ...", n.FilesystemPath, destPath, ffmpegBitrateStr))
-					// try without discarding album art; and if that fails try once more discarding video entirely:
-					out, err := dzutil.Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", n.FilesystemPath, "-c:v", "copy", "-c:a", "aac", "-b:a", ffmpegBitrateStr, destPath})
-					if err != nil {
-						_ = os.Remove(destPath)
-						cli.Out(spinCtx).Verbose(fmt.Sprintf("Transcoding of '%s' failed. Trying again without video. Error was: %s %s", n.FilesystemPath, out, err))
-						out, err := dzutil.Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", n.FilesystemPath, "-vn", "-c:a", "aac", "-b:a", ffmpegBitrateStr, destPath})
-						if err != nil {
-							_ = os.Remove(destPath)
-							return fmt.Errorf("transcode '%s' failed: %w: %s", n.FilesystemPath, err, out)
-						}
-					}
-				} else {
-					cli.Out(spinCtx).Verbose(fmt.Sprintf("[dry run] Would transcode '%s' to '%s' at %s", n.FilesystemPath, destPath, ffmpegBitrateStr))
+				cli.Out(spinCtx).Verbose(fmt.Sprintf("Queueing transcode of '%s' to '%s' at %s ...", n.FilesystemPath, destPath, ffmpegBitrateStr))
+				destNode := &MusicTreeNode{
+					TreePath:           append(destDirPartsNormalized, destFileNameNormalized),
+					FilesystemPath:     destPath,
+					IsFile:             true,
+					IsMusicFile:        true,
+					BaseName:           destFileName,
+					BaseNameNormalized: destFileNameNormalized,
+					FileBitrate:        targetTranscodeBitrate,
 				}
+				destDirNode.Children[destFileNameNormalized] = destNode
+				transcodeQueue = append(transcodeQueue, transcodeOp{
+					source: n,
+					dest:   destNode,
+				})
 			} else {
-				newFileBitrate = n.FileBitrate
 				if *makeSymlinksFlag {
 					if !*dryRunFlag {
 						cli.Out(spinCtx).Verbose(fmt.Sprintf("Symlinking '%s' to '%s'", destPath, n.FilesystemPath))
@@ -326,38 +336,31 @@ func msyncMain() error {
 						cli.Out(spinCtx).Verbose(fmt.Sprintf("[dry run] Would copy '%s' to '%s'", n.FilesystemPath, destPath))
 					}
 				}
-			}
-
-			if !*dryRunFlag {
-				info, err := os.Stat(destPath)
-				if err != nil {
-					return err
+				var newFileSize int64
+				var newFileMode os.FileMode
+				if !*dryRunFlag {
+					info, err := os.Stat(destPath)
+					if err != nil {
+						return err
+					}
+					newFileSize = info.Size()
+					newFileMode = info.Mode()
+				} else {
+					newFileSize = n.FileSize
+					newFileMode = fileCreateMode
 				}
-				newFileSize = info.Size()
-				newFileMode = info.Mode()
-			} else {
-				newFileSize = n.FileSize
-				newFileMode = n.Mode
+				destDirNode.Children[destFileNameNormalized] = &MusicTreeNode{
+					TreePath:           append(destDirPartsNormalized, destFileNameNormalized),
+					FilesystemPath:     destPath,
+					IsFile:             true,
+					IsMusicFile:        true,
+					BaseName:           destFileName,
+					BaseNameNormalized: destFileNameNormalized,
+					FileSize:           newFileSize,
+					FileBitrate:        n.FileBitrate,
+					Mode:               newFileMode,
+				}
 			}
-
-			var destDirPartsNormalized []string
-			for _, v := range destDirParts {
-				destDirPartsNormalized = append(destDirPartsNormalized, normalizeFileNameForComparing(v))
-			}
-			destFileName := filepath.Base(destPath)
-			destFileNameNormalized := normalizeFileNameForComparing(destFileName)
-			destDirNode.Children[destFileNameNormalized] = &MusicTreeNode{
-				TreePath:           append(destDirPartsNormalized, destFileNameNormalized),
-				FilesystemPath:     destPath,
-				IsFile:             true,
-				IsMusicFile:        true,
-				BaseName:           destFileName,
-				BaseNameNormalized: destFileNameNormalized,
-				FileSize:           newFileSize,
-				FileBitrate:        newFileBitrate,
-				Mode:               newFileMode,
-			}
-
 			filesSyncedCount++
 		}
 		return nil
@@ -367,9 +370,82 @@ func msyncMain() error {
 		return err
 	}
 	if *dryRunFlag {
-		cli.Out(ctx).Log(fmt.Sprintf("[dry run] Would synchronize %d music files to destination.", filesSyncedCount))
+		cli.Out(ctx).Log(fmt.Sprintf("[dry run] Would synchronize or enqueue %d music files.", filesSyncedCount))
 	} else {
-		cli.Out(ctx).Log(fmt.Sprintf("Synchronized %d music files to destination.", filesSyncedCount))
+		cli.Out(ctx).Log(fmt.Sprintf("Synchronized or enqueued %d music files.", filesSyncedCount))
+	}
+
+	cli.Out(ctx).Log(fmt.Sprintf("Transcoding %d music files from source to destination ...", len(transcodeQueue)))
+	spinCtx, spinProgress, spinStop = cli.WithProgress(ctx, "transcoding", int64(len(transcodeQueue)))
+	cpuCount := runtime.NumCPU()
+	cli.Out(ctx).Verbose(fmt.Sprintf("using %d parallel transcode tasks", cpuCount))
+	currentIdx := -1
+	var transcodeQueueLock sync.Mutex
+	var wg sync.WaitGroup
+	for i := 0; i <= cpuCount; i++ {
+		wg.Add(1)
+		go func() {
+			for {
+				transcodeQueueLock.Lock()
+				currentIdx++
+				if currentIdx >= len(transcodeQueue) || err != nil {
+					transcodeQueueLock.Unlock()
+					wg.Done()
+					return
+				}
+				op := transcodeQueue[currentIdx]
+				spinProgress(int64(currentIdx))
+				transcodeQueueLock.Unlock()
+
+				if !*dryRunFlag {
+					cli.Out(spinCtx).Verbose(fmt.Sprintf("Transcoding '%s' to '%s' at %s ...", op.source.FilesystemPath, op.dest.FilesystemPath, ffmpegBitrateStr))
+					// try without discarding album art; and if that fails try once more discarding video entirely:
+					out, transErr := dzutil.Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", op.source.FilesystemPath, "-c:v", "copy", "-c:a", "aac", "-b:a", ffmpegBitrateStr, op.dest.FilesystemPath})
+					if transErr != nil {
+						_ = os.Remove(op.dest.FilesystemPath)
+						cli.Out(spinCtx).Verbose(fmt.Sprintf("Transcoding of '%s' failed. Trying again without video. Error was: %s %s", op.source.FilesystemPath, out, transErr))
+						out, transErr = dzutil.Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", op.source.FilesystemPath, "-vn", "-c:a", "aac", "-b:a", ffmpegBitrateStr, op.dest.FilesystemPath})
+						if transErr != nil {
+							_ = os.Remove(op.dest.FilesystemPath)
+							transcodeQueueLock.Lock()
+							err = fmt.Errorf("transcode '%s' failed: %w: %s", op.source.FilesystemPath, transErr, out) // it's possible that up to NumCPUs errors occur and we only see the most recent one, but we'll still exit, so whatever
+							transcodeQueueLock.Unlock()
+							wg.Done()
+							return
+						}
+					}
+					destInfo, transErr := os.Stat(op.dest.FilesystemPath)
+					if transErr != nil {
+						_ = os.Remove(op.dest.FilesystemPath)
+						transcodeQueueLock.Lock()
+						err = transErr
+						transcodeQueueLock.Unlock()
+						wg.Done()
+						return
+					}
+					op.dest.Mode = destInfo.Mode()
+					op.dest.FileSize = destInfo.Size()
+				} else {
+					cli.Out(spinCtx).Verbose(fmt.Sprintf("[dry run] Would transcode '%s' to '%s' at %s", op.source.FilesystemPath, op.dest.FilesystemPath, ffmpegBitrateStr))
+					op.dest.Mode = fileCreateMode
+					op.dest.FileSize = int64(math.Round(float64(op.source.FileSize) / float64(op.source.FileBitrate) * float64(targetTranscodeBitrate)))
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	spinStop()
+	if err != nil {
+		return err
+	}
+	if len(transcodeQueue) > 0 {
+		if *dryRunFlag {
+			cli.Out(ctx).Log(fmt.Sprintf("[dry run] Would transcode %d music files.", len(transcodeQueue)))
+		} else {
+			cli.Out(ctx).Log(fmt.Sprintf("Transcoded %d music files.", len(transcodeQueue)))
+		}
+	} else {
+		cli.Out(ctx).Log("Nothing to transcode.")
 	}
 
 	cli.Out(ctx).Log("Removing empty directories from the destination directory tree ...")
@@ -399,7 +475,11 @@ func msyncMain() error {
 	if *makeSymlinksFlag {
 		symlinkPart = " (after resolving symlinks created during sync)"
 	}
-	cli.Out(ctx).Log(fmt.Sprintf("Destination library size is now %s%s.", filesize.ByteCountBothStyles(destTree.CalculateSize()), symlinkPart))
+	if !*dryRunFlag {
+		cli.Out(ctx).Log(fmt.Sprintf("Destination library size is now %s%s.", filesize.ByteCountBothStyles(destTree.CalculateSize()), symlinkPart))
+	} else {
+		cli.Out(ctx).Log(fmt.Sprintf("[dry run] Destination library size is estimated to be %s%s.", filesize.ByteCountBothStyles(destTree.CalculateSize()), symlinkPart))
+	}
 	cli.Out(ctx).Log("Completed!")
 
 	return nil
