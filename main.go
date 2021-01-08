@@ -9,11 +9,13 @@ import (
 	"log"
 	"math"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	"msync/cli"
 	"msync/dzutil"
@@ -107,6 +109,14 @@ func msyncMain() error {
 	if *verboseFlag {
 		ctx = cli.WithVerboseOut(ctx)
 	}
+
+	quitSig := make(chan os.Signal, 1)
+	signal.Notify(quitSig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	go func() {
+		<-quitSig
+		cli.ShowTerminalCursor()
+		os.Exit(0)
+	}()
 
 	cli.Out(ctx).Log(fmt.Sprintf("Scanning source directory (%s) ...", sourceRootPath))
 	spinCtx, _, spinStop := cli.WithSpinner(ctx, "scanning")
