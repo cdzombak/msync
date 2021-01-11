@@ -69,6 +69,7 @@ func main() {
 			log.Println(err.Error())
 		}
 		fmt.Printf("Error: %s\n", err.Error())
+		cli.ShowTerminalCursor()
 		os.Exit(1)
 	}
 }
