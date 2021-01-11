@@ -106,6 +106,10 @@ func msyncMain() error {
 		return err
 	}
 
+	if strings.Contains(sourceRootPath, destRootPath) || strings.Contains(destRootPath, sourceRootPath) {
+		return errors.New("source and destination paths must not overlap")
+	}
+
 	ctx := cli.WithCLIOut(context.Background())
 	if *verboseFlag {
 		ctx = cli.WithVerboseOut(ctx)
