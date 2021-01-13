@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/sbin:/Users/cdzombak/opt/bin:/usr/local/opt/go/libexec/bin</string>
+	</dict>
+	<key>Label</key>
+	<string>com.dzombak.music-160-mirror</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/bin/msync</string>
+		<string>-from</string>
+		<string>/Users/cdzombak/Music/iTunes/iTunes Media/Music</string>
+		<string>-to</string>
+		<string>/Users/cdzombak/Music/160Kbps</string>
+		<string>-max-kbps</string>
+		<string>160</string>
+		<string>-symlink</string>
+		<string>-remove-nonmusic-from-dest</string>
+		<string>-ask-trash-permission</string>
+	</array>
+	<key>StandardErrorPath</key>
+	<string>/tmp/com.dzombak.music-160-mirror.err</string>
+	<key>StandardOutPath</key>
+	<string>/tmp/com.dzombak.music-160-mirror.out</string>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>2</integer>
+		<key>Minute</key>
+		<integer>0</integer>
+	</dict>
+</dict>
+</plist>

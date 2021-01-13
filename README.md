@@ -6,13 +6,13 @@ It's also more opinionated than `rsync`, with behaviors tailored for exactly thi
 
 ## Use Cases
 
-I use msync to keep a secondary, 160 Kbps AAC copy of my music library. This is synchronized occasionally to my iPhone, which lacks the space for a music library consisting of lossless and higher-bitrate files.
+I use `msync` to keep a secondary, 160 Kbps AAC copy of my music library. This is synchronized occasionally to my iPhone, which lacks the space for a music library consisting of lossless and higher-bitrate files.
 
 I accomplish this by adding a launchd job for msync, which runs nightly on the Mac Mini server whic hosts the music library.
 
 ## Installation
 
-**Requirements:** at the moment, `msync` supports only macOS. This is because it uses macOS's built-in `afinfo` tool to determine music files' bitrates.
+**Requirements:** at the moment, `msync` supports only macOS. This is because it uses macOS's built-in [`afinfo`](https://github.com/tldr-pages/tldr/blob/master/pages/osx/afinfo.md) tool to determine music files' bitrates.
 
 `make install` will build `msync` for your current OS/architecture and install it to `/usr/local/bin`.
 
@@ -32,6 +32,18 @@ Basic usage is `msync -from ~/Music -to ~/MusicSmaller -max-kbps 192`, but you s
 - `-to`: Path of the destination music library.
 - `-verbose`: Log detailed output to stderr. Suppresses fancy progress indicators.
 - `-version`: Print version and exit.
+
+### Complete Usage Example
+
+The complete invocation I use to maintain a 160Kbps mirror of my music library is:
+
+```
+msync -from "/Users/cdzombak/Music/iTunes/iTunes Media/Music" -to /Users/cdzombak/Music/160Kbps -max-kbps 160 -symlink -remove-nonmusic-from-dest -ask-trash-permission
+```
+
+### Launch Agent
+
+The file [`com.dzombak.music-160-mirror.plist`](https://github.com/cdzombak/msync/blob/master/com.dzombak.music-160-mirror.plist) in this repository is the Launch Agent I use. It runs the `msync` invocation listed above nightly at 2 AM.
 
 ## About
 
