@@ -142,11 +142,11 @@ func msyncMain() error {
 	cli.Out(ctx).Log(fmt.Sprintf("Destination tree (%s) size is %s", destRootPath, filesize.ByteCountBothStyles(destTree.CalculateSize())))
 
 	// ffmpeg's aac encoder produces files a little bit above the target bitrate. so, when transcoding,
-	// we tell ffmpeg to target (max bitrate - 1Kbps), and we allow files in the destination dir to be
-	// (max bitrate + 2 Kbps). This mostly avoids deleting & re-transcoding the same files over and
+	// we tell ffmpeg to target (max bitrate - 5Kbps), and we allow files in the destination dir to be
+	// (max bitrate + 5 Kbps). This mostly avoids deleting & re-transcoding the same files over and
 	// over across multiple runs with the same configuration.
-	targetTranscodeBitrate := *maxBitrateKbpsFlag*1000 - 1000 // target bitrate for encoding
-	maxBitrateForDestFiles := targetTranscodeBitrate + 3000
+	targetTranscodeBitrate := *maxBitrateKbpsFlag*1000 - 5000 // target bitrate for encoding
+	maxBitrateForDestFiles := targetTranscodeBitrate + 10000  // allowed bitrate for files in dest. dir
 	const transcodeFileExt = ".m4a"
 
 	// we could do this more efficiently by eg. combining remove passes, but I don't care.
