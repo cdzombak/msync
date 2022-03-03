@@ -8,3 +8,5 @@ require (
 	github.com/mattn/go-isatty v0.0.12 // indirect
 	golang.org/x/term v0.0.0-20201210144234-2321bbc49cbf
 )
+
+replace github.com/Bios-Marcel/wastebasket => github.com/cdzombak/wastebasket v0.0.0-20220303004330-8a4f14a00355

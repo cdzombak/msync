@@ -1,7 +1,7 @@
-github.com/Bios-Marcel/wastebasket v0.0.0-20190304193457-ba788b19da79 h1:Sl/dpj/KqjXaqEsZhEGlTEIcGqnBW8Oy71UfpjHKUic=
-github.com/Bios-Marcel/wastebasket v0.0.0-20190304193457-ba788b19da79/go.mod h1:C9joOaYXk4dxd98yWfxg8imfNq5Zyyc2CnH8eExIEro=
 github.com/briandowns/spinner v1.12.0 h1:72O0PzqGJb6G3KgrcIOtL/JAGGZ5ptOMCn9cUHmqsmw=
 github.com/briandowns/spinner v1.12.0/go.mod h1:QOuQk7x+EaDASo80FEXwlwiA+j/PPIcX3FScO+3/ZPQ=
+github.com/cdzombak/wastebasket v0.0.0-20220303004330-8a4f14a00355 h1:GJ5RuMZrogMXNDxxOJAz1tSY+HCvKqAA5UcgIn4SpIw=
+github.com/cdzombak/wastebasket v0.0.0-20220303004330-8a4f14a00355/go.mod h1:C9joOaYXk4dxd98yWfxg8imfNq5Zyyc2CnH8eExIEro=
 github.com/fatih/color v1.7.0 h1:DkWD4oS2D8LGGgTQ6IvwJJXSL5Vp2ffcQg58nFV38Ys=
 github.com/fatih/color v1.7.0/go.mod h1:Zm6kSWBoL9eyXnKyktHP6abPY2pDugNf5KwzbycvMj4=
 github.com/mattn/go-colorable v0.1.2 h1:/bC9yWikZXAL9uJdulbSfyVNIR3n3trXl+v8+1sx8mU=
