@@ -107,7 +107,7 @@ func msyncMain() error {
 		return err
 	}
 
-	if strings.Contains(sourceRootPath, destRootPath) || strings.Contains(destRootPath, sourceRootPath) {
+	if pathsOverlap(sourceRootPath, destRootPath) {
 		return errors.New("source and destination paths must not overlap")
 	}
 
