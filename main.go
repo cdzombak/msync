@@ -429,6 +429,7 @@ func msyncMain() error {
 	cpuCount := runtime.NumCPU()
 	cli.Out(ctx).Verbose(fmt.Sprintf("using %d parallel transcode tasks", cpuCount))
 	currentIdx := -1
+	var transcodeErr error
 	var transcodeQueueLock sync.Mutex
 	var wg sync.WaitGroup
 	for i := 0; i <= cpuCount; i++ {
@@ -437,7 +438,7 @@ func msyncMain() error {
 			for {
 				transcodeQueueLock.Lock()
 				currentIdx++
-				if currentIdx >= len(transcodeQueue) || err != nil {
+				if currentIdx >= len(transcodeQueue) || transcodeErr != nil {
 					transcodeQueueLock.Unlock()
 					wg.Done()
 					return
@@ -457,7 +458,7 @@ func msyncMain() error {
 						if transErr != nil {
 							_ = os.Remove(op.dest.FilesystemPath)
 							transcodeQueueLock.Lock()
-							err = fmt.Errorf("transcode '%s' failed: %w: %s", op.source.FilesystemPath, transErr, out) // it's possible that up to NumCPUs errors occur and we only see the most recent one, but we'll still exit, so whatever
+							transcodeErr = fmt.Errorf("transcode '%s' failed: %w: %s", op.source.FilesystemPath, transErr, out) // it's possible that up to NumCPUs errors occur and we only see the most recent one, but we'll still exit, so whatever
 							transcodeQueueLock.Unlock()
 							wg.Done()
 							return
@@ -467,7 +468,7 @@ func msyncMain() error {
 					if transErr != nil {
 						_ = os.Remove(op.dest.FilesystemPath)
 						transcodeQueueLock.Lock()
-						err = transErr
+						transcodeErr = transErr
 						transcodeQueueLock.Unlock()
 						wg.Done()
 						return
@@ -488,8 +489,8 @@ func msyncMain() error {
 	}
 	wg.Wait()
 	spinStop()
-	if err != nil {
-		return err
+	if transcodeErr != nil {
+		return transcodeErr
 	}
 	if len(transcodeQueue) > 0 {
 		if *dryRunFlag {

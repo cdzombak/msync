@@ -51,6 +51,7 @@ func MakeMusicTree(ctx context.Context, filePath string) (*MusicTreeNode, error)
 	cpuCount := runtime.NumCPU()
 	cli.Out(ctx).Verbose(fmt.Sprintf("using %d goroutines to check file bitrates", cpuCount))
 	currentIdx := -1
+	var bitrateErr error
 	var nodesQueueLock sync.Mutex
 	var wg sync.WaitGroup
 	for i := 0; i <= cpuCount; i++ {
@@ -59,7 +60,7 @@ func MakeMusicTree(ctx context.Context, filePath string) (*MusicTreeNode, error)
 			for {
 				nodesQueueLock.Lock()
 				currentIdx++
-				if currentIdx >= len(nodesNeedingBitrate) || err != nil {
+				if currentIdx >= len(nodesNeedingBitrate) || bitrateErr != nil {
 					nodesQueueLock.Unlock()
 					wg.Done()
 					return
@@ -69,7 +70,7 @@ func MakeMusicTree(ctx context.Context, filePath string) (*MusicTreeNode, error)
 				bitrate, brErr := fileBitrate(n.FilesystemPath)
 				if brErr != nil {
 					nodesQueueLock.Lock()
-					err = brErr // it's possible that up to NumCPUs errors occur and we only see the most recent one, but we'll still exit, so whatever
+					bitrateErr = brErr // it's possible that up to NumCPUs errors occur and we only see the most recent one, but we'll still exit, so whatever
 					nodesQueueLock.Unlock()
 					wg.Done()
 					return
@@ -79,7 +80,7 @@ func MakeMusicTree(ctx context.Context, filePath string) (*MusicTreeNode, error)
 		}()
 	}
 	wg.Wait()
-	return tree, err
+	return tree, bitrateErr
 }
 
 // makeMusicTreeNode returns nil if the path does not point to a directory, regular file, or symlink.
