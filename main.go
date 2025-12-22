@@ -300,7 +300,7 @@ func msyncMain() error {
 					cli.Out(spinCtx).Verbose(fmt.Sprintf("mkdir -p '%s'", destDirPath))
 					err := os.MkdirAll(destDirPath, destTree.Mode)
 					if err != nil {
-						return err
+						return fmt.Errorf("failed to mkdir %s: %w", destDirPath, err)
 					}
 				} else {
 					cli.Out(spinCtx).Verbose(fmt.Sprintf("[dry run] Would mkdir -p '%s'", destDirPath))
