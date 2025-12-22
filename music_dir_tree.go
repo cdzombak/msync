@@ -54,7 +54,7 @@ func MakeMusicTree(ctx context.Context, filePath string) (*MusicTreeNode, error)
 	var bitrateErr error
 	var nodesQueueLock sync.Mutex
 	var wg sync.WaitGroup
-	for i := 0; i <= cpuCount; i++ {
+	for i := 0; i < cpuCount; i++ {
 		wg.Add(1)
 		go func() {
 			for {

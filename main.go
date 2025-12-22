@@ -432,7 +432,7 @@ func msyncMain() error {
 	var transcodeErr error
 	var transcodeQueueLock sync.Mutex
 	var wg sync.WaitGroup
-	for i := 0; i <= cpuCount; i++ {
+	for i := 0; i < cpuCount; i++ {
 		wg.Add(1)
 		go func() {
 			for {
