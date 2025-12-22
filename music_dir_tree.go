@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"msync/cli"
 	"msync/dzutil"
@@ -29,6 +30,7 @@ type MusicTreeNode struct {
 	FileSize           int64                     // size of this entity, iff it's a file
 	FileBitrate        int                       // bitrate of this entity, iff it's a music file
 	Mode               os.FileMode               // file mode of this entity
+	ModTime            time.Time                 // modification time of this entity
 	Children           map[string]*MusicTreeNode // map of BaseNameNormalized -> *MusicTreeNode, iff it's a directory. nil if it's a file.
 }
 
@@ -94,6 +96,7 @@ func makeMusicTreeNode(ctx context.Context, filePath string, parentNodePath []st
 		BaseNameNormalized: normalizeFileNameForComparing(rootInfo.Name()),
 		FilesystemPath:     filePath,
 		Mode:               rootInfo.Mode(),
+		ModTime:            rootInfo.ModTime(),
 	}
 	if !isRootNode {
 		n.TreePath = append(parentNodePath, n.BaseNameNormalized)
@@ -180,6 +183,14 @@ func (n *MusicTreeNode) NodeAtTreePath(normalizedTreePath []string) *MusicTreeNo
 		return node.NodeAtTreePath(normalizedTreePath[1:])
 	}
 	return nil
+}
+
+// IsNewerThan returns true if this node's modification time is after the other node's.
+func (n *MusicTreeNode) IsNewerThan(other *MusicTreeNode) bool {
+	if n == nil || other == nil || !n.IsFile || !other.IsFile {
+		return false
+	}
+	return n.ModTime.After(other.ModTime)
 }
 
 // Walk walks every node in the given tree, calling the given callback for every node.
