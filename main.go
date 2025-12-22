@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"msync/cli"
 	"msync/dzutil"
@@ -242,7 +243,26 @@ func msyncMain() error {
 		if n.IsFile && !n.IsMusicFile {
 			return nil
 		}
-		if !destTree.HasNodeAtTreePath(n.TreePath) {
+		existingDestNode := destTree.NodeAtTreePath(n.TreePath)
+		needsSync := existingDestNode == nil || n.IsNewerThan(existingDestNode)
+		if needsSync {
+			// If destination exists but is outdated, remove it first
+			if existingDestNode != nil {
+				if !*dryRunFlag {
+					cli.Out(spinCtx).Verbose(fmt.Sprintf("%s is newer than destination; removing outdated %s", n.FilesystemPath, existingDestNode.FilesystemPath))
+					if err := wastebasket.Trash(existingDestNode.FilesystemPath); err != nil {
+						return fmt.Errorf("failed to trash outdated '%s': %w", existingDestNode.FilesystemPath, err)
+					}
+				} else {
+					cli.Out(spinCtx).Verbose(fmt.Sprintf("[dry run] Would remove outdated %s because %s is newer", existingDestNode.FilesystemPath, n.FilesystemPath))
+				}
+				// Remove from dest tree
+				parentPath := n.TreePath[:len(n.TreePath)-1]
+				if parentNode := destTree.NodeAtTreePath(parentPath); parentNode != nil && parentNode.Children != nil {
+					delete(parentNode.Children, existingDestNode.BaseNameNormalized)
+				}
+			}
+
 			destPath := strings.Replace(n.FilesystemPath, sourceRootPath, destRootPath, 1)
 
 			// file dest path may be different if re-encoding.
@@ -250,12 +270,24 @@ func msyncMain() error {
 			if n.IsFile && n.IsMusicFile && n.FileBitrate > maxBitrateForDestFiles {
 				needsTranscode = true
 				destPath = dzutil.RemoveExt(destPath) + transcodeFileExt
-				cli.Out(spinCtx).Verbose(fmt.Sprintf("%s is missing from destination; will be transcoded to %s", n.FilesystemPath, destPath))
+				if existingDestNode == nil {
+					cli.Out(spinCtx).Verbose(fmt.Sprintf("%s is missing from destination; will be transcoded to %s", n.FilesystemPath, destPath))
+				} else {
+					cli.Out(spinCtx).Verbose(fmt.Sprintf("%s is newer than destination; will be re-transcoded to %s", n.FilesystemPath, destPath))
+				}
 			} else {
 				if *makeSymlinksFlag {
-					cli.Out(spinCtx).Verbose(fmt.Sprintf("%s is missing from destination; will be symlinked to %s", n.FilesystemPath, destPath))
+					if existingDestNode == nil {
+						cli.Out(spinCtx).Verbose(fmt.Sprintf("%s is missing from destination; will be symlinked to %s", n.FilesystemPath, destPath))
+					} else {
+						cli.Out(spinCtx).Verbose(fmt.Sprintf("%s is newer than destination; will be re-symlinked to %s", n.FilesystemPath, destPath))
+					}
 				} else {
-					cli.Out(spinCtx).Verbose(fmt.Sprintf("%s is missing from destination; will be copied to %s", n.FilesystemPath, destPath))
+					if existingDestNode == nil {
+						cli.Out(spinCtx).Verbose(fmt.Sprintf("%s is missing from destination; will be copied to %s", n.FilesystemPath, destPath))
+					} else {
+						cli.Out(spinCtx).Verbose(fmt.Sprintf("%s is newer than destination; will be re-copied to %s", n.FilesystemPath, destPath))
+					}
 				}
 			}
 
@@ -323,6 +355,7 @@ func msyncMain() error {
 					BaseName:           destFileName,
 					BaseNameNormalized: destFileNameNormalized,
 					FileBitrate:        targetTranscodeBitrate,
+					ModTime:            n.ModTime, // will be set on disk after transcode
 				}
 				destDirNode.Children[destFileNameNormalized] = destNode
 				transcodeQueue = append(transcodeQueue, transcodeOp{
@@ -343,7 +376,7 @@ func msyncMain() error {
 				} else {
 					if !*dryRunFlag {
 						cli.Out(spinCtx).Verbose(fmt.Sprintf("Copying '%s' to '%s'", n.FilesystemPath, destPath))
-						err := dzutil.CopyFile(n.FilesystemPath, destPath, fileCreateMode)
+						err := dzutil.CopyFile(n.FilesystemPath, destPath, fileCreateMode, n.ModTime)
 						if err != nil {
 							return fmt.Errorf("failed to copy '%s' to '%s': %w", n.FilesystemPath, destPath, err)
 						}
@@ -374,6 +407,7 @@ func msyncMain() error {
 					FileSize:           newFileSize,
 					FileBitrate:        n.FileBitrate,
 					Mode:               newFileMode,
+					ModTime:            n.ModTime,
 				}
 			}
 			filesSyncedCount++
@@ -440,6 +474,10 @@ func msyncMain() error {
 					}
 					op.dest.Mode = destInfo.Mode()
 					op.dest.FileSize = destInfo.Size()
+					// Preserve the source file's modification time on the transcoded file
+					if chtErr := os.Chtimes(op.dest.FilesystemPath, time.Now(), op.source.ModTime); chtErr != nil {
+						cli.Out(spinCtx).Warning(fmt.Sprintf("failed to set modification time on '%s': %s", op.dest.FilesystemPath, chtErr))
+					}
 				} else {
 					cli.Out(spinCtx).Verbose(fmt.Sprintf("[dry run] Would transcode '%s' to '%s' at %s", op.source.FilesystemPath, op.dest.FilesystemPath, ffmpegBitrateStr))
 					op.dest.Mode = fileCreateMode
