@@ -17,6 +17,10 @@ all: clean build build-linux-amd64 build-darwin-amd64 build-darwin-arm64 ## Buil
 clean: ## Remove built products in ./out
 	rm -rf ./out
 
+.PHONY: test
+test: ## Run tests
+	go test -race ./...
+
 .PHONY: lint
 lint: ## Lint all .go files
 	@for file in ${GO_FILES} ;  do \
