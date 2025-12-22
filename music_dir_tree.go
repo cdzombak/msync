@@ -37,7 +37,8 @@ type MusicTreeNode struct {
 // MakeMusicTree builds a music tree rooted at the given path on disk.
 // The given progress function is called with each path as it's scanned.
 func MakeMusicTree(ctx context.Context, filePath string) (*MusicTreeNode, error) {
-	tree, err := makeMusicTreeNode(ctx, filePath, nil, true)
+	dirStack := make(map[string]struct{})
+	tree, err := makeMusicTreeNode(ctx, filePath, nil, true, dirStack)
 	if err != nil {
 		return tree, err
 	}
@@ -84,7 +85,7 @@ func MakeMusicTree(ctx context.Context, filePath string) (*MusicTreeNode, error)
 }
 
 // makeMusicTreeNode returns nil if the path does not point to a directory, regular file, or symlink.
-func makeMusicTreeNode(ctx context.Context, filePath string, parentNodePath []string, isRootNode bool) (*MusicTreeNode, error) {
+func makeMusicTreeNode(ctx context.Context, filePath string, parentNodePath []string, isRootNode bool, dirStack map[string]struct{}) (*MusicTreeNode, error) {
 	if *verboseFlag {
 		log.Printf("Scanning '%s' ...", filePath)
 	}
@@ -104,7 +105,17 @@ func makeMusicTreeNode(ctx context.Context, filePath string, parentNodePath []st
 	}
 	if rootInfo.IsDir() {
 		n.IsDirectory = true
-	} else if n.Mode.IsRegular() || n.Mode&os.ModeSymlink != 0 {
+		realPath, err := realPathForCycleCheck(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve symlinks for '%s': %w", filePath, err)
+		}
+		if _, ok := dirStack[realPath]; ok {
+			cli.Out(ctx).Warning(fmt.Sprintf("Skipping '%s': directory symlink cycle detected.", filePath))
+			return nil, nil
+		}
+		dirStack[realPath] = struct{}{}
+		defer delete(dirStack, realPath)
+	} else if n.Mode.IsRegular() {
 		n.IsFile = true
 	} else {
 		cli.Out(ctx).Warning(fmt.Sprintf("Skipping '%s': it is not a regular file.", filePath))
@@ -117,7 +128,7 @@ func makeMusicTreeNode(ctx context.Context, filePath string, parentNodePath []st
 			return nil, fmt.Errorf("failed to list '%s': %w", filePath, err)
 		}
 		for _, child := range children {
-			childNode, err := makeMusicTreeNode(ctx, filepath.Join(filePath, child.Name()), n.TreePath, false)
+			childNode, err := makeMusicTreeNode(ctx, filepath.Join(filePath, child.Name()), n.TreePath, false, dirStack)
 			if err != nil {
 				return nil, err
 			}
@@ -252,4 +263,16 @@ func normalizeFileNameForComparing(name string) string {
 		name = dzutil.RemoveExt(name)
 	}
 	return name
+}
+
+func realPathForCycleCheck(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	absPath, err := filepath.Abs(resolved)
+	if err != nil {
+		return filepath.Clean(resolved), nil
+	}
+	return filepath.Clean(absPath), nil
 }
