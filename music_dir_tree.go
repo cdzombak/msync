@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -86,6 +87,16 @@ func MakeMusicTree(ctx context.Context, filePath string) (*MusicTreeNode, error)
 		}()
 	}
 	wg.Wait()
+	// the warnings are gathered in whatever order the goroutines finished; sort them so a given tree
+	// always reports the same way, and cap them so that a tree that has gone wrong wholesale doesn't
+	// bury everything else in the log (or in the mail a scheduled run sends when it fails).
+	const maxBitrateWarnings = 25
+	sort.Strings(bitrateWarnings)
+	if len(bitrateWarnings) > maxBitrateWarnings {
+		omitted := len(bitrateWarnings) - maxBitrateWarnings
+		bitrateWarnings = append(bitrateWarnings[:maxBitrateWarnings:maxBitrateWarnings],
+			fmt.Sprintf("... and %d more file(s) whose bitrate could not be read", omitted))
+	}
 	cli.Out(ctx).Warnings(bitrateWarnings)
 	return tree, nil
 }
