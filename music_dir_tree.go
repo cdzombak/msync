@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -141,7 +140,7 @@ func makeMusicTreeNode(ctx context.Context, filePath string, parentNodePath []st
 	}
 	if n.IsDirectory {
 		n.Children = make(map[string]*MusicTreeNode)
-		children, err := ioutil.ReadDir(filePath)
+		children, err := os.ReadDir(filePath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list '%s': %w", filePath, err)
 		}

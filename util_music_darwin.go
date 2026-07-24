@@ -11,7 +11,7 @@ import (
 
 const bitrateExecutable = "afinfo"
 
-var bitrateRegex = regexp.MustCompile("bit rate: (\\d+) bits per second")
+var bitrateRegex = regexp.MustCompile(`bit rate: (\d+) bits per second`)
 
 // checkBitrateToolAvailable returns an error iff the tool used to read file bitrates is unavailable.
 // This lets msync fail fast on a broken environment, so that a failure to read any individual file's

@@ -12,7 +12,19 @@ I accomplish this by adding a launchd job for msync, which runs nightly on the M
 
 ## Installation
 
-**Requirements:** at the moment, `msync` supports only macOS. This is because it uses macOS's built-in [`afinfo`](https://github.com/tldr-pages/tldr/blob/master/pages/osx/afinfo.md) tool to determine music files' bitrates.
+**Requirements:** `msync` supports only macOS. This is because it uses macOS's built-in [`afinfo`](https://github.com/tldr-pages/tldr/blob/master/pages/osx/afinfo.md) tool to determine music files' bitrates.
+
+### Homebrew
+
+```shell
+brew install cdzombak/oss/msync
+```
+
+### Manual from build artifacts
+
+Pre-built macOS binaries (amd64 and arm64) are downloadable from each [GitHub Release](https://github.com/cdzombak/msync/releases).
+
+### Build from source
 
 `make install` will build `msync` for your current OS/architecture and install it to `/usr/local/bin`.
 

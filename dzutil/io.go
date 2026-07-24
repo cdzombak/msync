@@ -13,13 +13,13 @@ func CopyFile(from, to string, mode os.FileMode, sourceModTime time.Time) error 
 	if err != nil {
 		return err
 	}
-	defer fromFile.Close()
+	defer func() { _ = fromFile.Close() }()
 
 	toFile, err := os.OpenFile(to, os.O_RDWR|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		return err
 	}
-	defer toFile.Close()
+	defer func() { _ = toFile.Close() }()
 
 	_, err = io.Copy(toFile, fromFile)
 	if err != nil {
