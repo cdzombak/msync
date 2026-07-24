@@ -87,6 +87,10 @@ func msyncMain() error {
 	}
 	fileCreateMode := os.FileMode(mode)
 
+	if err := checkBitrateToolAvailable(); err != nil {
+		return err
+	}
+
 	if *askTrashPermissionFlag {
 		file, err := ioutil.TempFile("/tmp", "msync")
 		if err != nil {
