@@ -81,7 +81,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: stable
       - name: Run golangci-lint
@@ -103,7 +103,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: stable
       - name: Go version
@@ -124,7 +124,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: stable
       - name: Go version
