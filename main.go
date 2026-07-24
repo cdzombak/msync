@@ -87,6 +87,12 @@ type transcodeOp struct {
 // removes destination files missing from source.
 const transcodeTempSuffix = ".msync-tmp"
 
+// transcodeBitrateHeadroom is how far below -max-kbps we ask ffmpeg to encode, in bits per second.
+// The encoder overshoots its target slightly, and the bitrate a file is later judged by is derived
+// from its size on disk, which also includes container overhead and any album art carried over.
+// Encoding at exactly -max-kbps leaves no room for any of that.
+const transcodeBitrateHeadroom = 5000
+
 // transcodeTempPath returns the path, in the same directory as the given destination path, that
 // ffmpeg should write to while transcoding a file destined for destPath.
 func transcodeTempPath(destPath string) string {
@@ -108,6 +114,10 @@ func msyncMain() error {
 		return errors.New("-file-mode must be an octal value parsable by strconv.ParseInt")
 	}
 	fileCreateMode := os.FileMode(mode)
+
+	if *maxBitrateKbpsFlag*1000 <= transcodeBitrateHeadroom {
+		return fmt.Errorf("-max-kbps must be greater than %d", transcodeBitrateHeadroom/1000)
+	}
 
 	if err := checkBitrateToolAvailable(); err != nil {
 		return err
@@ -172,8 +182,8 @@ func msyncMain() error {
 	// we tell ffmpeg to target (max bitrate - 5Kbps), and we allow files in the destination dir to be
 	// (max bitrate + 5 Kbps). This mostly avoids deleting & re-transcoding the same files over and
 	// over across multiple runs with the same configuration.
-	targetTranscodeBitrate := *maxBitrateKbpsFlag*1000 - 5000 // target bitrate for encoding
-	maxBitrateForDestFiles := targetTranscodeBitrate + 10000  // allowed bitrate for files in dest. dir
+	targetTranscodeBitrate := *maxBitrateKbpsFlag*1000 - transcodeBitrateHeadroom // target bitrate for encoding
+	maxBitrateForDestFiles := targetTranscodeBitrate + 10000                      // allowed bitrate for files in dest. dir
 	const transcodeFileExt = ".m4a"
 	const transcodeFileFormat = "ipod" // the ffmpeg muxer for transcodeFileExt, named explicitly because
 	//                                    we transcode to a temporary path ffmpeg can't infer it from
@@ -295,7 +305,7 @@ func msyncMain() error {
 		cli.Out(ctx).Log("0 files affected.")
 	}
 
-	ffmpegBitrateStr := strconv.Itoa(*maxBitrateKbpsFlag) + "k"
+	ffmpegBitrateStr := strconv.Itoa(targetTranscodeBitrate/1000) + "k"
 	didMkdir := make(map[string]bool)
 	filesSyncedCount := 0
 	sourceSkippedCount := 0
