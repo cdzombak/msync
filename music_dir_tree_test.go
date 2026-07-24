@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -20,7 +19,7 @@ func TestMakeMusicTree_SymlinkCycle(t *testing.T) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := ioutil.WriteFile(filepath.Join(root, "file.txt"), []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 	if err := os.Symlink(root, filepath.Join(root, "loop")); err != nil {
@@ -83,7 +82,7 @@ func TestMakeMusicTree_MatchesAcrossUnicodeForms(t *testing.T) {
 			t.Fatalf("mkdir: %v", err)
 		}
 		// a non-music extension keeps the test hermetic: no afinfo, no bitrate lookup.
-		if err := ioutil.WriteFile(filepath.Join(root, "Dire Straits", fileName+".txt"), []byte("x"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(root, "Dire Straits", fileName+".txt"), []byte("x"), 0o644); err != nil {
 			t.Fatalf("write file: %v", err)
 		}
 		tree, err := MakeMusicTree(cli.WithCLIOut(context.Background()), root)
@@ -118,7 +117,7 @@ func TestMakeMusicTree_UnreadableMusicFile(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 	// a truncated music file, as an interrupted transcode leaves behind: afinfo can't read it.
-	if err := ioutil.WriteFile(filepath.Join(root, "truncated.m4a"), []byte("\x00\x00\x00\x20ftypM4A "), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "truncated.m4a"), []byte("\x00\x00\x00\x20ftypM4A "), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 
@@ -146,7 +145,7 @@ func TestMakeMusicTree_FollowsSymlinkDir(t *testing.T) {
 	if err := os.MkdirAll(realDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := ioutil.WriteFile(filepath.Join(realDir, "file.txt"), []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(realDir, "file.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 	if err := os.Symlink(realDir, filepath.Join(root, "alias")); err != nil {

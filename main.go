@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math"
 	"os"
@@ -124,11 +123,11 @@ func msyncMain() error {
 	}
 
 	if *askTrashPermissionFlag {
-		file, err := ioutil.TempFile("/tmp", "msync")
+		file, err := os.CreateTemp("/tmp", "msync")
 		if err != nil {
 			return err
 		}
-		file.Close()
+		_ = file.Close()
 		if err := wastebasket.Trash(file.Name()); err != nil {
 			return err
 		}
@@ -265,7 +264,7 @@ func msyncMain() error {
 		removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
 			destI++
 			spinProgress(destI)
-			return !(n.IsDirectory || n.IsMusicFile)
+			return !n.IsDirectory && !n.IsMusicFile
 		}, "file is not a music file")
 		spinStop()
 		if err != nil {
