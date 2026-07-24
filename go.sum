@@ -1,5 +1,5 @@
-github.com/briandowns/spinner v1.12.0 h1:72O0PzqGJb6G3KgrcIOtL/JAGGZ5ptOMCn9cUHmqsmw=
-github.com/briandowns/spinner v1.12.0/go.mod h1:QOuQk7x+EaDASo80FEXwlwiA+j/PPIcX3FScO+3/ZPQ=
+github.com/briandowns/spinner v1.23.2 h1:Zc6ecUnI+YzLmJniCfDNaMbW0Wid1d5+qcTq4L2FW8w=
+github.com/briandowns/spinner v1.23.2/go.mod h1:LaZeM4wm2Ywy6vO571mvhQNRcWfRUnXOs0RcKV0wYKM=
 github.com/cdzombak/wastebasket v0.0.0-20220303004330-8a4f14a00355 h1:GJ5RuMZrogMXNDxxOJAz1tSY+HCvKqAA5UcgIn4SpIw=
 github.com/cdzombak/wastebasket v0.0.0-20220303004330-8a4f14a00355/go.mod h1:C9joOaYXk4dxd98yWfxg8imfNq5Zyyc2CnH8eExIEro=
 github.com/fatih/color v1.7.0 h1:DkWD4oS2D8LGGgTQ6IvwJJXSL5Vp2ffcQg58nFV38Ys=
