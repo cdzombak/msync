@@ -28,7 +28,8 @@ type MusicTreeNode struct {
 	BaseName           string                    // base name of this entity on disk
 	BaseNameNormalized string                    // base name of this entity, normalized to lowercase and with music file extensions removed
 	FileSize           int64                     // size of this entity, iff it's a file
-	FileBitrate        int                       // bitrate of this entity, iff it's a music file
+	FileBitrate        int                       // bitrate of this entity, iff it's a music file and its bitrate could be read
+	BitrateUnreadable  bool                      // whether this is a music file whose bitrate could not be read (ie. the file is corrupt or truncated)
 	Mode               os.FileMode               // file mode of this entity
 	ModTime            time.Time                 // modification time of this entity
 	Children           map[string]*MusicTreeNode // map of BaseNameNormalized -> *MusicTreeNode, iff it's a directory. nil if it's a file.
@@ -52,36 +53,41 @@ func MakeMusicTree(ctx context.Context, filePath string) (*MusicTreeNode, error)
 	cpuCount := runtime.NumCPU()
 	cli.Out(ctx).Verbose(fmt.Sprintf("using %d goroutines to check file bitrates", cpuCount))
 	currentIdx := -1
-	var bitrateErr error
+	var bitrateWarnings []string
 	var nodesQueueLock sync.Mutex
 	var wg sync.WaitGroup
 	for i := 0; i < cpuCount; i++ {
 		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			for {
 				nodesQueueLock.Lock()
 				currentIdx++
-				if currentIdx >= len(nodesNeedingBitrate) || bitrateErr != nil {
+				if currentIdx >= len(nodesNeedingBitrate) {
 					nodesQueueLock.Unlock()
-					wg.Done()
 					return
 				}
 				n := nodesNeedingBitrate[currentIdx]
 				nodesQueueLock.Unlock()
 				bitrate, brErr := fileBitrate(n.FilesystemPath)
 				if brErr != nil {
+					// A file whose bitrate can't be read is corrupt or truncated (eg. left behind by an
+					// interrupted transcode). Record that and carry on; scanning the whole tree is far too
+					// expensive to throw away over one bad file, and the caller can decide what to do
+					// with the file once it has the complete picture.
+					n.BitrateUnreadable = true
 					nodesQueueLock.Lock()
-					bitrateErr = brErr // it's possible that up to NumCPUs errors occur and we only see the most recent one, but we'll still exit, so whatever
+					bitrateWarnings = append(bitrateWarnings, brErr.Error())
 					nodesQueueLock.Unlock()
-					wg.Done()
-					return
+					continue
 				}
 				n.FileBitrate = bitrate
 			}
 		}()
 	}
 	wg.Wait()
-	return tree, bitrateErr
+	cli.Out(ctx).Warnings(bitrateWarnings)
+	return tree, nil
 }
 
 // makeMusicTreeNode returns nil if the path does not point to a directory, regular file, or symlink.

@@ -180,6 +180,49 @@ func msyncMain() error {
 		cli.Out(ctx).Log("0 files/directories affected.")
 	}
 
+	// remove any music files from dest whose bitrate couldn't be read. those files are corrupt or
+	// truncated (eg. left behind by a transcode that was interrupted partway through writing), so
+	// there's nothing to be gained by keeping them; they'll be recreated from source below.
+	destMusicFileCount := 0
+	destUnreadableCount := 0
+	_ = destTree.Walk(func(n *MusicTreeNode) error {
+		if n.IsMusicFile {
+			destMusicFileCount++
+			if n.BitrateUnreadable {
+				destUnreadableCount++
+			}
+		}
+		return nil
+	})
+	if destUnreadableCount > 0 {
+		// if a large share of the destination is unreadable, the problem is the destination as a whole
+		// (eg. a network share that has dropped out) rather than the individual files. bail out instead
+		// of trashing and re-transcoding most of the library on the strength of a bad mount.
+		// a handful of bad files is a normal thing to clean up, though, whatever share of a small
+		// library they happen to represent, so only a large number of them is taken as evidence.
+		const minUnreadableToSuspectDest = 10
+		if destUnreadableCount > minUnreadableToSuspectDest && destUnreadableCount*10 > destMusicFileCount {
+			return fmt.Errorf("%d of %d music files in the destination (%s) are unreadable; refusing to remove that many files. check the destination filesystem", destUnreadableCount, destMusicFileCount, destTree.FilesystemPath)
+		}
+		cli.Out(ctx).Log("Removing unreadable music files from the destination directory tree ...")
+		destI = 0
+		spinCtx, spinProgress, spinStop = cli.WithProgress(ctx, "checking", destTree.CountNodes())
+		removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
+			destI++
+			spinProgress(destI)
+			return n.IsMusicFile && n.BitrateUnreadable
+		}, "the file is unreadable")
+		spinStop()
+		if err != nil {
+			return err
+		}
+		if *dryRunFlag {
+			cli.Out(ctx).Log(fmt.Sprintf("[dry run] Would remove %d unreadable music files from destination (%s)", removeCount, destTree.FilesystemPath))
+		} else {
+			cli.Out(ctx).Log(fmt.Sprintf("Removed %d unreadable music files from destination (%s)", removeCount, destTree.FilesystemPath))
+		}
+	}
+
 	if *removeOtherFilesFromDestFlag {
 		// remove anything from dest that isn't a music file:
 		cli.Out(ctx).Log("Removing non-music files from the destination directory tree ...")
@@ -231,6 +274,7 @@ func msyncMain() error {
 	ffmpegBitrateStr := strconv.Itoa(*maxBitrateKbpsFlag) + "k"
 	didMkdir := make(map[string]bool)
 	filesSyncedCount := 0
+	sourceSkippedCount := 0
 	var transcodeQueue []transcodeOp
 
 	// either copy/link or re-encode all music files & directories from source that aren't in dest:
@@ -245,6 +289,13 @@ func msyncMain() error {
 		sourceI++
 		spinProgress(sourceI)
 		if n.IsFile && !n.IsMusicFile {
+			return nil
+		}
+		if n.IsMusicFile && n.BitrateUnreadable {
+			// we don't know whether this needs transcoding, and ffmpeg won't be able to read it either.
+			// leave whatever is already in the destination alone rather than replacing it with a copy of
+			// a file we know we can't read.
+			sourceSkippedCount++
 			return nil
 		}
 		existingDestNode := destTree.NodeAtTreePath(n.TreePath)
@@ -426,6 +477,9 @@ func msyncMain() error {
 		cli.Out(ctx).Log(fmt.Sprintf("[dry run] Would synchronize or enqueue %d music files.", filesSyncedCount))
 	} else {
 		cli.Out(ctx).Log(fmt.Sprintf("Synchronized or enqueued %d music files.", filesSyncedCount))
+	}
+	if sourceSkippedCount > 0 {
+		cli.Out(ctx).Warning(fmt.Sprintf("Skipped %d unreadable music files in the source directory (%s); see the warnings logged while scanning it.", sourceSkippedCount, sourceTree.FilesystemPath))
 	}
 
 	cli.Out(ctx).Log(fmt.Sprintf("Transcoding %d music files from source to destination ...", len(transcodeQueue)))
