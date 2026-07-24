@@ -80,6 +80,28 @@ type transcodeOp struct {
 	dest   *MusicTreeNode
 }
 
+// transcodeTempSuffix is appended to the name of the file ffmpeg writes while transcoding.
+// It deliberately leaves the temporary file without a music file extension, so that a temporary file
+// left behind by an interrupted run is never mistaken for part of the destination music library.
+// Such leftovers have no counterpart in the source tree, so they're cleaned up by the pass that
+// removes destination files missing from source.
+const transcodeTempSuffix = ".msync-tmp"
+
+// transcodeTempPath returns the path, in the same directory as the given destination path, that
+// ffmpeg should write to while transcoding a file destined for destPath.
+func transcodeTempPath(destPath string) string {
+	return filepath.Join(filepath.Dir(destPath), "."+filepath.Base(destPath)+transcodeTempSuffix)
+}
+
+// removeTranscodeTemp removes a temporary transcode file, warning if it can't be removed.
+// A failure here is not fatal on its own, but it's the reason a failed transcode can leave debris
+// behind, so it must not pass silently.
+func removeTranscodeTemp(ctx context.Context, path string) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		cli.Out(ctx).Warning(fmt.Sprintf("failed to remove temporary file '%s': %s", path, err))
+	}
+}
+
 func msyncMain() error {
 	mode, err := strconv.ParseInt(*fileCreateModeFlag, 8, 64)
 	if err != nil {
@@ -153,6 +175,8 @@ func msyncMain() error {
 	targetTranscodeBitrate := *maxBitrateKbpsFlag*1000 - 5000 // target bitrate for encoding
 	maxBitrateForDestFiles := targetTranscodeBitrate + 10000  // allowed bitrate for files in dest. dir
 	const transcodeFileExt = ".m4a"
+	const transcodeFileFormat = "ipod" // the ffmpeg muxer for transcodeFileExt, named explicitly because
+	//                                    we transcode to a temporary path ffmpeg can't infer it from
 
 	// we could do this more efficiently by eg. combining remove passes, but I don't care.
 	// this makes the program logic easier to follow, and a separate count pass makes reporting progress easier.
@@ -493,12 +517,12 @@ func msyncMain() error {
 	for i := 0; i < cpuCount; i++ {
 		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			for {
 				transcodeQueueLock.Lock()
 				currentIdx++
 				if currentIdx >= len(transcodeQueue) || transcodeErr != nil {
 					transcodeQueueLock.Unlock()
-					wg.Done()
 					return
 				}
 				op := transcodeQueue[currentIdx]
@@ -507,36 +531,52 @@ func msyncMain() error {
 
 				if !*dryRunFlag {
 					cli.Out(spinCtx).Verbose(fmt.Sprintf("Transcoding '%s' to '%s' at %s ...", op.source.FilesystemPath, op.dest.FilesystemPath, ffmpegBitrateStr))
+					// transcode to a temporary path alongside the destination, and only move it into place
+					// once it's complete and verified. ffmpeg writing straight to the destination leaves a
+					// truncated file there if it's interrupted (eg. by a network mount dropping out), and
+					// that file then looks like a real, if corrupt, part of the destination library.
+					tmpPath := transcodeTempPath(op.dest.FilesystemPath)
+					failTranscode := func(err error) {
+						removeTranscodeTemp(spinCtx, tmpPath)
+						transcodeQueueLock.Lock()
+						transcodeErr = err // it's possible that up to NumCPUs errors occur and we only see the most recent one, but we'll still exit, so whatever
+						transcodeQueueLock.Unlock()
+					}
+
 					// try without discarding album art; and if that fails try once more discarding video entirely:
-					out, transErr := dzutil.Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", op.source.FilesystemPath, "-c:v", "copy", "-c:a", "aac", "-b:a", ffmpegBitrateStr, op.dest.FilesystemPath})
+					out, transErr := dzutil.Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-y", "-i", op.source.FilesystemPath, "-c:v", "copy", "-c:a", "aac", "-b:a", ffmpegBitrateStr, "-f", transcodeFileFormat, tmpPath})
 					if transErr != nil {
-						_ = os.Remove(op.dest.FilesystemPath)
+						removeTranscodeTemp(spinCtx, tmpPath)
 						cli.Out(spinCtx).Verbose(fmt.Sprintf("Transcoding of '%s' failed. Trying again without video. Error was: %s %s", op.source.FilesystemPath, out, transErr))
-						out, transErr = dzutil.Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", op.source.FilesystemPath, "-vn", "-c:a", "aac", "-b:a", ffmpegBitrateStr, op.dest.FilesystemPath})
+						out, transErr = dzutil.Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-y", "-i", op.source.FilesystemPath, "-vn", "-c:a", "aac", "-b:a", ffmpegBitrateStr, "-f", transcodeFileFormat, tmpPath})
 						if transErr != nil {
-							_ = os.Remove(op.dest.FilesystemPath)
-							transcodeQueueLock.Lock()
-							transcodeErr = fmt.Errorf("transcode '%s' failed: %w: %s", op.source.FilesystemPath, transErr, out) // it's possible that up to NumCPUs errors occur and we only see the most recent one, but we'll still exit, so whatever
-							transcodeQueueLock.Unlock()
-							wg.Done()
+							failTranscode(fmt.Errorf("transcode '%s' failed: %w: %s", op.source.FilesystemPath, transErr, out))
 							return
 						}
 					}
+
+					// ffmpeg exiting zero isn't proof the file landed intact; verify we can read the result
+					// back before treating it as a finished transcode.
+					if _, brErr := fileBitrate(tmpPath); brErr != nil {
+						failTranscode(fmt.Errorf("transcode '%s' produced an unreadable file: %w", op.source.FilesystemPath, brErr))
+						return
+					}
+					// Preserve the source file's modification time on the transcoded file
+					if chtErr := os.Chtimes(tmpPath, time.Now(), op.source.ModTime); chtErr != nil {
+						cli.Out(spinCtx).Warning(fmt.Sprintf("failed to set modification time on '%s': %s", tmpPath, chtErr))
+					}
+					if renErr := os.Rename(tmpPath, op.dest.FilesystemPath); renErr != nil {
+						failTranscode(fmt.Errorf("failed to move completed transcode to '%s': %w", op.dest.FilesystemPath, renErr))
+						return
+					}
+
 					destInfo, transErr := os.Stat(op.dest.FilesystemPath)
 					if transErr != nil {
-						_ = os.Remove(op.dest.FilesystemPath)
-						transcodeQueueLock.Lock()
-						transcodeErr = transErr
-						transcodeQueueLock.Unlock()
-						wg.Done()
+						failTranscode(transErr)
 						return
 					}
 					op.dest.Mode = destInfo.Mode()
 					op.dest.FileSize = destInfo.Size()
-					// Preserve the source file's modification time on the transcoded file
-					if chtErr := os.Chtimes(op.dest.FilesystemPath, time.Now(), op.source.ModTime); chtErr != nil {
-						cli.Out(spinCtx).Warning(fmt.Sprintf("failed to set modification time on '%s': %s", op.dest.FilesystemPath, chtErr))
-					}
 				} else {
 					cli.Out(spinCtx).Verbose(fmt.Sprintf("[dry run] Would transcode '%s' to '%s' at %s", op.source.FilesystemPath, op.dest.FilesystemPath, ffmpegBitrateStr))
 					op.dest.Mode = fileCreateMode
