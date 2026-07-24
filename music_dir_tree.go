@@ -17,6 +17,7 @@ import (
 	"msync/dzutil"
 
 	"github.com/Bios-Marcel/wastebasket"
+	"golang.org/x/text/unicode/norm"
 )
 
 // MusicTreeNode is a node representing a file or directory in a tree of music files on disk.
@@ -274,12 +275,21 @@ func isMusicFile(path string) bool {
 	return ext == ".mp3" || ext == ".m4a" || ext == ".flac" || ext == ".alac"
 }
 
+// normalizeFileNameForComparing reduces a file's base name to the form used to compare it against
+// the equivalent file in the other tree.
+//
+// The Unicode normalization matters whenever the two trees live on filesystems that disagree about
+// how to store accented characters: an SMB share typically returns "é" decomposed, as "e" followed
+// by a combining acute accent, where the local disk returns the single precomposed code point.
+// Those are the same name to a person and different strings to Go, so without this a file like
+// "Communiqué.flac" is seen as present in one tree and missing from the other, and gets deleted
+// and recopied on every single run.
 func normalizeFileNameForComparing(name string) string {
 	name = strings.ToLower(name)
 	if isMusicFile(name) {
 		name = dzutil.RemoveExt(name)
 	}
-	return name
+	return norm.NFC.String(name)
 }
 
 func realPathForCycleCheck(path string) (string, error) {
