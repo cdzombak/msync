@@ -225,7 +225,7 @@ jobs:
     needs: [meta, lint, test, binaries, release, homebrew]
     steps:
       - name: Send success notification
-        uses: niniyas/ntfy-action@V1.0.5
+        uses: niniyas/ntfy-action@v1.0.6
         if: ${{ !contains(needs.*.result, 'failure') && (needs.meta.outputs.is_release == 'true' || needs.meta.outputs.is_prerelease == 'true') }}
         with:
           url: "https://ntfy.cdzombak.net"
@@ -236,7 +236,7 @@ jobs:
           title: ${{ github.event.repository.name }} ${{ needs.meta.outputs.bin_version }} available
           details: ${{ github.event.repository.name }} version ${{ needs.meta.outputs.bin_version }} is now available.
       - name: Send failure notification
-        uses: niniyas/ntfy-action@V1.0.5
+        uses: niniyas/ntfy-action@v1.0.6
         if: ${{ contains(needs.*.result, 'failure') }}
         with:
           url: "https://ntfy.cdzombak.net"
