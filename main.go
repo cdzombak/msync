@@ -80,12 +80,48 @@ type transcodeOp struct {
 	dest   *MusicTreeNode
 }
 
+// transcodeTempSuffix is appended to the name of the file ffmpeg writes while transcoding.
+// It deliberately leaves the temporary file without a music file extension, so that a temporary file
+// left behind by an interrupted run is never mistaken for part of the destination music library.
+// Such leftovers have no counterpart in the source tree, so they're cleaned up by the pass that
+// removes destination files missing from source.
+const transcodeTempSuffix = ".msync-tmp"
+
+// transcodeBitrateHeadroom is how far below -max-kbps we ask ffmpeg to encode, in bits per second.
+// The encoder overshoots its target slightly, and the bitrate a file is later judged by is derived
+// from its size on disk, which also includes container overhead and any album art carried over.
+// Encoding at exactly -max-kbps leaves no room for any of that.
+const transcodeBitrateHeadroom = 5000
+
+// transcodeTempPath returns the path, in the same directory as the given destination path, that
+// ffmpeg should write to while transcoding a file destined for destPath.
+func transcodeTempPath(destPath string) string {
+	return filepath.Join(filepath.Dir(destPath), "."+filepath.Base(destPath)+transcodeTempSuffix)
+}
+
+// removeTranscodeTemp removes a temporary transcode file, warning if it can't be removed.
+// A failure here is not fatal on its own, but it's the reason a failed transcode can leave debris
+// behind, so it must not pass silently.
+func removeTranscodeTemp(ctx context.Context, path string) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		cli.Out(ctx).Warning(fmt.Sprintf("failed to remove temporary file '%s': %s", path, err))
+	}
+}
+
 func msyncMain() error {
 	mode, err := strconv.ParseInt(*fileCreateModeFlag, 8, 64)
 	if err != nil {
 		return errors.New("-file-mode must be an octal value parsable by strconv.ParseInt")
 	}
 	fileCreateMode := os.FileMode(mode)
+
+	if *maxBitrateKbpsFlag*1000 <= transcodeBitrateHeadroom {
+		return fmt.Errorf("-max-kbps must be greater than %d", transcodeBitrateHeadroom/1000)
+	}
+
+	if err := checkBitrateToolAvailable(); err != nil {
+		return err
+	}
 
 	if *askTrashPermissionFlag {
 		file, err := ioutil.TempFile("/tmp", "msync")
@@ -146,9 +182,11 @@ func msyncMain() error {
 	// we tell ffmpeg to target (max bitrate - 5Kbps), and we allow files in the destination dir to be
 	// (max bitrate + 5 Kbps). This mostly avoids deleting & re-transcoding the same files over and
 	// over across multiple runs with the same configuration.
-	targetTranscodeBitrate := *maxBitrateKbpsFlag*1000 - 5000 // target bitrate for encoding
-	maxBitrateForDestFiles := targetTranscodeBitrate + 10000  // allowed bitrate for files in dest. dir
+	targetTranscodeBitrate := *maxBitrateKbpsFlag*1000 - transcodeBitrateHeadroom // target bitrate for encoding
+	maxBitrateForDestFiles := targetTranscodeBitrate + 10000                      // allowed bitrate for files in dest. dir
 	const transcodeFileExt = ".m4a"
+	const transcodeFileFormat = "ipod" // the ffmpeg muxer for transcodeFileExt, named explicitly because
+	//                                    we transcode to a temporary path ffmpeg can't infer it from
 
 	// we could do this more efficiently by eg. combining remove passes, but I don't care.
 	// this makes the program logic easier to follow, and a separate count pass makes reporting progress easier.
@@ -174,6 +212,49 @@ func msyncMain() error {
 		}
 	} else {
 		cli.Out(ctx).Log("0 files/directories affected.")
+	}
+
+	// remove any music files from dest whose bitrate couldn't be read. those files are corrupt or
+	// truncated (eg. left behind by a transcode that was interrupted partway through writing), so
+	// there's nothing to be gained by keeping them; they'll be recreated from source below.
+	destMusicFileCount := 0
+	destUnreadableCount := 0
+	_ = destTree.Walk(func(n *MusicTreeNode) error {
+		if n.IsMusicFile {
+			destMusicFileCount++
+			if n.BitrateUnreadable {
+				destUnreadableCount++
+			}
+		}
+		return nil
+	})
+	if destUnreadableCount > 0 {
+		// if a large share of the destination is unreadable, the problem is the destination as a whole
+		// (eg. a network share that has dropped out) rather than the individual files. bail out instead
+		// of trashing and re-transcoding most of the library on the strength of a bad mount.
+		// a handful of bad files is a normal thing to clean up, though, whatever share of a small
+		// library they happen to represent, so only a large number of them is taken as evidence.
+		const minUnreadableToSuspectDest = 10
+		if destUnreadableCount > minUnreadableToSuspectDest && destUnreadableCount*10 > destMusicFileCount {
+			return fmt.Errorf("%d of %d music files in the destination (%s) are unreadable; refusing to remove that many files. check the destination filesystem", destUnreadableCount, destMusicFileCount, destTree.FilesystemPath)
+		}
+		cli.Out(ctx).Log("Removing unreadable music files from the destination directory tree ...")
+		destI = 0
+		spinCtx, spinProgress, spinStop = cli.WithProgress(ctx, "checking", destTree.CountNodes())
+		removeCount, err = destTree.RemoveChildrenMatching(func(n *MusicTreeNode) bool {
+			destI++
+			spinProgress(destI)
+			return n.IsMusicFile && n.BitrateUnreadable
+		}, "the file is unreadable")
+		spinStop()
+		if err != nil {
+			return err
+		}
+		if *dryRunFlag {
+			cli.Out(ctx).Log(fmt.Sprintf("[dry run] Would remove %d unreadable music files from destination (%s)", removeCount, destTree.FilesystemPath))
+		} else {
+			cli.Out(ctx).Log(fmt.Sprintf("Removed %d unreadable music files from destination (%s)", removeCount, destTree.FilesystemPath))
+		}
 	}
 
 	if *removeOtherFilesFromDestFlag {
@@ -224,9 +305,10 @@ func msyncMain() error {
 		cli.Out(ctx).Log("0 files affected.")
 	}
 
-	ffmpegBitrateStr := strconv.Itoa(*maxBitrateKbpsFlag) + "k"
+	ffmpegBitrateStr := strconv.Itoa(targetTranscodeBitrate/1000) + "k"
 	didMkdir := make(map[string]bool)
 	filesSyncedCount := 0
+	sourceSkippedCount := 0
 	var transcodeQueue []transcodeOp
 
 	// either copy/link or re-encode all music files & directories from source that aren't in dest:
@@ -241,6 +323,13 @@ func msyncMain() error {
 		sourceI++
 		spinProgress(sourceI)
 		if n.IsFile && !n.IsMusicFile {
+			return nil
+		}
+		if n.IsMusicFile && n.BitrateUnreadable {
+			// we don't know whether this needs transcoding, and ffmpeg won't be able to read it either.
+			// leave whatever is already in the destination alone rather than replacing it with a copy of
+			// a file we know we can't read.
+			sourceSkippedCount++
 			return nil
 		}
 		existingDestNode := destTree.NodeAtTreePath(n.TreePath)
@@ -423,6 +512,9 @@ func msyncMain() error {
 	} else {
 		cli.Out(ctx).Log(fmt.Sprintf("Synchronized or enqueued %d music files.", filesSyncedCount))
 	}
+	if sourceSkippedCount > 0 {
+		cli.Out(ctx).Warning(fmt.Sprintf("Skipped %d unreadable music files in the source directory (%s); see the warnings logged while scanning it.", sourceSkippedCount, sourceTree.FilesystemPath))
+	}
 
 	cli.Out(ctx).Log(fmt.Sprintf("Transcoding %d music files from source to destination ...", len(transcodeQueue)))
 	spinCtx, spinProgress, spinStop = cli.WithProgress(ctx, "transcoding", int64(len(transcodeQueue)))
@@ -435,12 +527,12 @@ func msyncMain() error {
 	for i := 0; i < cpuCount; i++ {
 		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			for {
 				transcodeQueueLock.Lock()
 				currentIdx++
 				if currentIdx >= len(transcodeQueue) || transcodeErr != nil {
 					transcodeQueueLock.Unlock()
-					wg.Done()
 					return
 				}
 				op := transcodeQueue[currentIdx]
@@ -449,36 +541,52 @@ func msyncMain() error {
 
 				if !*dryRunFlag {
 					cli.Out(spinCtx).Verbose(fmt.Sprintf("Transcoding '%s' to '%s' at %s ...", op.source.FilesystemPath, op.dest.FilesystemPath, ffmpegBitrateStr))
+					// transcode to a temporary path alongside the destination, and only move it into place
+					// once it's complete and verified. ffmpeg writing straight to the destination leaves a
+					// truncated file there if it's interrupted (eg. by a network mount dropping out), and
+					// that file then looks like a real, if corrupt, part of the destination library.
+					tmpPath := transcodeTempPath(op.dest.FilesystemPath)
+					failTranscode := func(err error) {
+						removeTranscodeTemp(spinCtx, tmpPath)
+						transcodeQueueLock.Lock()
+						transcodeErr = err // it's possible that up to NumCPUs errors occur and we only see the most recent one, but we'll still exit, so whatever
+						transcodeQueueLock.Unlock()
+					}
+
 					// try without discarding album art; and if that fails try once more discarding video entirely:
-					out, transErr := dzutil.Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", op.source.FilesystemPath, "-c:v", "copy", "-c:a", "aac", "-b:a", ffmpegBitrateStr, op.dest.FilesystemPath})
+					out, transErr := dzutil.Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-y", "-i", op.source.FilesystemPath, "-c:v", "copy", "-c:a", "aac", "-b:a", ffmpegBitrateStr, "-f", transcodeFileFormat, tmpPath})
 					if transErr != nil {
-						_ = os.Remove(op.dest.FilesystemPath)
+						removeTranscodeTemp(spinCtx, tmpPath)
 						cli.Out(spinCtx).Verbose(fmt.Sprintf("Transcoding of '%s' failed. Trying again without video. Error was: %s %s", op.source.FilesystemPath, out, transErr))
-						out, transErr = dzutil.Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-i", op.source.FilesystemPath, "-vn", "-c:a", "aac", "-b:a", ffmpegBitrateStr, op.dest.FilesystemPath})
+						out, transErr = dzutil.Exec("ffmpeg", []string{"-loglevel", "warning", "-hide_banner", "-y", "-i", op.source.FilesystemPath, "-vn", "-c:a", "aac", "-b:a", ffmpegBitrateStr, "-f", transcodeFileFormat, tmpPath})
 						if transErr != nil {
-							_ = os.Remove(op.dest.FilesystemPath)
-							transcodeQueueLock.Lock()
-							transcodeErr = fmt.Errorf("transcode '%s' failed: %w: %s", op.source.FilesystemPath, transErr, out) // it's possible that up to NumCPUs errors occur and we only see the most recent one, but we'll still exit, so whatever
-							transcodeQueueLock.Unlock()
-							wg.Done()
+							failTranscode(fmt.Errorf("transcode '%s' failed: %w: %s", op.source.FilesystemPath, transErr, out))
 							return
 						}
 					}
+
+					// ffmpeg exiting zero isn't proof the file landed intact; verify we can read the result
+					// back before treating it as a finished transcode.
+					if _, brErr := fileBitrate(tmpPath); brErr != nil {
+						failTranscode(fmt.Errorf("transcode '%s' produced an unreadable file: %w", op.source.FilesystemPath, brErr))
+						return
+					}
+					// Preserve the source file's modification time on the transcoded file
+					if chtErr := os.Chtimes(tmpPath, time.Now(), op.source.ModTime); chtErr != nil {
+						cli.Out(spinCtx).Warning(fmt.Sprintf("failed to set modification time on '%s': %s", tmpPath, chtErr))
+					}
+					if renErr := os.Rename(tmpPath, op.dest.FilesystemPath); renErr != nil {
+						failTranscode(fmt.Errorf("failed to move completed transcode to '%s': %w", op.dest.FilesystemPath, renErr))
+						return
+					}
+
 					destInfo, transErr := os.Stat(op.dest.FilesystemPath)
 					if transErr != nil {
-						_ = os.Remove(op.dest.FilesystemPath)
-						transcodeQueueLock.Lock()
-						transcodeErr = transErr
-						transcodeQueueLock.Unlock()
-						wg.Done()
+						failTranscode(transErr)
 						return
 					}
 					op.dest.Mode = destInfo.Mode()
 					op.dest.FileSize = destInfo.Size()
-					// Preserve the source file's modification time on the transcoded file
-					if chtErr := os.Chtimes(op.dest.FilesystemPath, time.Now(), op.source.ModTime); chtErr != nil {
-						cli.Out(spinCtx).Warning(fmt.Sprintf("failed to set modification time on '%s': %s", op.dest.FilesystemPath, chtErr))
-					}
 				} else {
 					cli.Out(spinCtx).Verbose(fmt.Sprintf("[dry run] Would transcode '%s' to '%s' at %s", op.source.FilesystemPath, op.dest.FilesystemPath, ffmpegBitrateStr))
 					op.dest.Mode = fileCreateMode

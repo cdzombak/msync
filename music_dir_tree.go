@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"msync/dzutil"
 
 	"github.com/Bios-Marcel/wastebasket"
+	"golang.org/x/text/unicode/norm"
 )
 
 // MusicTreeNode is a node representing a file or directory in a tree of music files on disk.
@@ -28,7 +30,8 @@ type MusicTreeNode struct {
 	BaseName           string                    // base name of this entity on disk
 	BaseNameNormalized string                    // base name of this entity, normalized to lowercase and with music file extensions removed
 	FileSize           int64                     // size of this entity, iff it's a file
-	FileBitrate        int                       // bitrate of this entity, iff it's a music file
+	FileBitrate        int                       // bitrate of this entity, iff it's a music file and its bitrate could be read
+	BitrateUnreadable  bool                      // whether this is a music file whose bitrate could not be read (ie. the file is corrupt or truncated)
 	Mode               os.FileMode               // file mode of this entity
 	ModTime            time.Time                 // modification time of this entity
 	Children           map[string]*MusicTreeNode // map of BaseNameNormalized -> *MusicTreeNode, iff it's a directory. nil if it's a file.
@@ -52,36 +55,51 @@ func MakeMusicTree(ctx context.Context, filePath string) (*MusicTreeNode, error)
 	cpuCount := runtime.NumCPU()
 	cli.Out(ctx).Verbose(fmt.Sprintf("using %d goroutines to check file bitrates", cpuCount))
 	currentIdx := -1
-	var bitrateErr error
+	var bitrateWarnings []string
 	var nodesQueueLock sync.Mutex
 	var wg sync.WaitGroup
 	for i := 0; i < cpuCount; i++ {
 		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			for {
 				nodesQueueLock.Lock()
 				currentIdx++
-				if currentIdx >= len(nodesNeedingBitrate) || bitrateErr != nil {
+				if currentIdx >= len(nodesNeedingBitrate) {
 					nodesQueueLock.Unlock()
-					wg.Done()
 					return
 				}
 				n := nodesNeedingBitrate[currentIdx]
 				nodesQueueLock.Unlock()
 				bitrate, brErr := fileBitrate(n.FilesystemPath)
 				if brErr != nil {
+					// A file whose bitrate can't be read is corrupt or truncated (eg. left behind by an
+					// interrupted transcode). Record that and carry on; scanning the whole tree is far too
+					// expensive to throw away over one bad file, and the caller can decide what to do
+					// with the file once it has the complete picture.
+					n.BitrateUnreadable = true
 					nodesQueueLock.Lock()
-					bitrateErr = brErr // it's possible that up to NumCPUs errors occur and we only see the most recent one, but we'll still exit, so whatever
+					bitrateWarnings = append(bitrateWarnings, brErr.Error())
 					nodesQueueLock.Unlock()
-					wg.Done()
-					return
+					continue
 				}
 				n.FileBitrate = bitrate
 			}
 		}()
 	}
 	wg.Wait()
-	return tree, bitrateErr
+	// the warnings are gathered in whatever order the goroutines finished; sort them so a given tree
+	// always reports the same way, and cap them so that a tree that has gone wrong wholesale doesn't
+	// bury everything else in the log (or in the mail a scheduled run sends when it fails).
+	const maxBitrateWarnings = 25
+	sort.Strings(bitrateWarnings)
+	if len(bitrateWarnings) > maxBitrateWarnings {
+		omitted := len(bitrateWarnings) - maxBitrateWarnings
+		bitrateWarnings = append(bitrateWarnings[:maxBitrateWarnings:maxBitrateWarnings],
+			fmt.Sprintf("... and %d more file(s) whose bitrate could not be read", omitted))
+	}
+	cli.Out(ctx).Warnings(bitrateWarnings)
+	return tree, nil
 }
 
 // makeMusicTreeNode returns nil if the path does not point to a directory, regular file, or symlink.
@@ -257,12 +275,21 @@ func isMusicFile(path string) bool {
 	return ext == ".mp3" || ext == ".m4a" || ext == ".flac" || ext == ".alac"
 }
 
+// normalizeFileNameForComparing reduces a file's base name to the form used to compare it against
+// the equivalent file in the other tree.
+//
+// The Unicode normalization matters whenever the two trees live on filesystems that disagree about
+// how to store accented characters: an SMB share typically returns "é" decomposed, as "e" followed
+// by a combining acute accent, where the local disk returns the single precomposed code point.
+// Those are the same name to a person and different strings to Go, so without this a file like
+// "Communiqué.flac" is seen as present in one tree and missing from the other, and gets deleted
+// and recopied on every single run.
 func normalizeFileNameForComparing(name string) string {
 	name = strings.ToLower(name)
 	if isMusicFile(name) {
 		name = dzutil.RemoveExt(name)
 	}
-	return name
+	return norm.NFC.String(name)
 }
 
 func realPathForCycleCheck(path string) (string, error) {
