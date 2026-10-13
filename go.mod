@@ -1,12 +1,12 @@
 module msync
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/Bios-Marcel/wastebasket v0.0.0-20190304193457-ba788b19da79
 	github.com/briandowns/spinner v1.12.0
 	golang.org/x/term v0.44.0
-	golang.org/x/text v0.40.0
+	golang.org/x/text v0.43.0
 )
 
 require (
